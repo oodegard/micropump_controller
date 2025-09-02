@@ -29,6 +29,18 @@ Examples:
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Find-ExistingCodeSigningCert {
+    param([string]$Subject)
+    $stores = @('Cert:\\CurrentUser\\My','Cert:\\LocalMachine\\My')
+    foreach ($store in $stores) {
+        try {
+            $match = Get-ChildItem $store | Where-Object { $_.HasPrivateKey -and $_.Subject -eq $Subject }
+            if ($match) { return ($match | Sort-Object NotBefore -Descending | Select-Object -First 1) }
+        } catch { }
+    }
+    return $null
+}
+
 function Find-Inf2Cat {
     $paths = @(
         Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin\*\x64\Inf2Cat.exe'),
@@ -65,22 +77,13 @@ function Backup-ExistingCats {
 
 function Run-Inf2Cat {
     param([string]$Inf2CatPath,[string]$Dir,[string]$OS,[switch]$Verbose)
-    $args = @('/driver:"{0}"' -f $Dir, '/os:{0}' -f $OS)
+    # Build arguments explicitly to avoid quoting issues
+    $args = @("/driver:$Dir", "/os:$OS")
     if ($Verbose) { $args += '/verbose' }
-    Write-Host "Running Inf2Cat: $Inf2CatPath $($args -join ' ')" -ForegroundColor Cyan
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $Inf2CatPath
-    $psi.Arguments = ($args -join ' ')
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UseShellExecute = $false
-    $p = [System.Diagnostics.Process]::Start($psi)
-    $stdout = $p.StandardOutput.ReadToEnd()
-    $stderr = $p.StandardError.ReadToEnd()
-    $p.WaitForExit()
-    if ($stdout) { Write-Host $stdout.Trim() }
-    if ($stderr) { Write-Warning $stderr.Trim() }
-    if ($p.ExitCode -ne 0) { throw "Inf2Cat failed with exit code $($p.ExitCode)" }
+    Write-Host "Running Inf2Cat: `"$Inf2CatPath`" $($args -join ' ')" -ForegroundColor Cyan
+    & $Inf2CatPath @args
+    $exit = $LASTEXITCODE
+    if ($exit -ne 0) { throw "Inf2Cat failed with exit code $exit" }
 }
 
 function New-TestCodeSigningCertIfNeeded {
@@ -112,7 +115,7 @@ function Export-PfxIfRequested {
 }
 
 function Sign-Catalogs {
-    param([string]$SignToolPath,[string]$Dir,[string]$Pfx,[SecureString]$Password,[string]$Subject,[string]$TsUrl)
+    param([string]$SignToolPath,[string]$Dir,[string]$Pfx,[SecureString]$Password,[string]$Subject,[string]$TsUrl,[string]$Thumbprint)
     $cats = Get-ChildItem -Path $Dir -Filter '*.cat'
     if (-not $cats) { throw 'No .cat files found to sign.' }
     foreach ($cat in $cats) {
@@ -130,7 +133,11 @@ function Sign-Catalogs {
                 if ($bstr) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
                 Remove-Item $tmp -ErrorAction SilentlyContinue
             }
+        } elseif ($Thumbprint) {
+            # Use precise thumbprint selection from CurrentUser\My
+            $args += @('/sha1', $Thumbprint)
         } elseif ($Subject) {
+            # Fallback to subject name matching
             $args += @('/n', $Subject)
         } else {
             # Try best available certificate automatically
@@ -156,14 +163,18 @@ try {
         $signtool = Find-SignTool
         if (-not $signtool) { throw 'signtool.exe not found. Install the Windows SDK.' }
 
-        $certToUse = $null
-        if ($CreateTestCert) {
+        # Prefer an existing cert by subject; create one if requested
+        $certToUse = Find-ExistingCodeSigningCert -Subject $CertSubject
+        if (-not $certToUse -and $CreateTestCert) {
             $certToUse = New-TestCodeSigningCertIfNeeded -Subject $CertSubject -Install:$InstallTestCert
+            # Refresh from store to ensure we have the persisted instance with Thumbprint populated
+            $certToUse = Find-ExistingCodeSigningCert -Subject $CertSubject
         }
 
         if ($certToUse -and -not $PfxPath) {
             Write-Host "Signing with certificate in CurrentUser store: $($certToUse.Subject)" -ForegroundColor Yellow
-            Sign-Catalogs -SignToolPath $signtool -Dir $DriverDir -Subject $certToUse.Subject -TsUrl $TimeStampUrl
+            Write-Host ("Using thumbprint: {0}" -f $certToUse.Thumbprint)
+            Sign-Catalogs -SignToolPath $signtool -Dir $DriverDir -Thumbprint $($certToUse.Thumbprint) -TsUrl $TimeStampUrl
         } else {
             if (-not $PfxPath -and $certToUse) {
                 # Export to temp PFX if no path provided
@@ -171,7 +182,7 @@ try {
                 if (-not $PfxPassword) { $PfxPassword = Read-Host -AsSecureString 'Create a password for the test PFX' }
                 Export-PfxIfRequested -Cert $certToUse -OutPath $PfxPath -Password $PfxPassword | Out-Null
             }
-            if (-not $PfxPath) { throw 'Provide -PfxPath/-PfxPassword or -CreateTestCert to sign.' }
+            if (-not $PfxPath) { throw "No code signing cert found for subject '$CertSubject'. Use -CreateTestCert or provide -PfxPath/-PfxPassword." }
             if (-not $PfxPassword) { $PfxPassword = Read-Host -AsSecureString 'Enter PFX password' }
             Sign-Catalogs -SignToolPath $signtool -Dir $DriverDir -Pfx $PfxPath -Password $PfxPassword -TsUrl $TimeStampUrl
         }

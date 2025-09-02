@@ -58,3 +58,14 @@ Notes
 
 - Production/Distribution: Microsoft attestation signing is required for 64‑bit Windows so users can install without disabling signature enforcement. That process cannot be completed from this repo alone.
 - If your device uses non‑FTDI VID/PIDs, ensure the same IDs exist in both `ftdibus.inf` and `ftdiport.inf` as needed.
+Install on a handful of PCs (trusted cert + pnputil)
+
+- If you signed the catalogs with an organization certificate, deploy trust for that publisher on target PCs and then install drivers. Use the helper script:
+
+  1) Export the public certificate (.cer) for the certificate that signed the `.cat` files.
+  2) Copy the `.cer` to the target PC along with this folder.
+  3) In elevated PowerShell, run:
+     `hardware\\drivers\\Bartels_controller_XU7_USB_Driver_2.08.30\\install_cert_and_drivers.ps1 -CertPath C:\\path\\to\\YourSigningCert.cer`
+  4) The script imports the cert into Trusted Root and Trusted Publishers (LocalMachine by default) and then runs `pnputil` for both INFs.
+
+- If LocalMachine store import is restricted, add `-StoreLocation CurrentUser` and ensure the current user performs the install.

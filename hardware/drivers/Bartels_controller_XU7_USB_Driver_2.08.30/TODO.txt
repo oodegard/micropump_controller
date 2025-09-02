@@ -1,5 +1,22 @@
 Goal: Repack and sign INF catalogs on a machine with Visual Studio + WDK, then install the drivers.
 
+Decisions (your choices)
+- Visual Studio: 2022 Community
+- Workload: Desktop development with C++
+- Tooling: Windows 10/11 SDK + matching WDK
+- Signing: Test certificate (self-signed), subject: "CN=Micropump Test Signing"
+- OS targets: 10_X64
+
+Quick status checklist
+- [x] Install VS 2022 + Desktop C++ workload
+- [x] Install Windows SDK + WDK (VS2022-compatible)
+- [x] Verify tools: Inf2Cat and signtool available
+- [x] Repack and sign catalogs with test cert
+- [x] Verify signatures on .cat files
+- [x] Export public .cer for the signing cert
+- [ ] On each target PC: import cert + install drivers
+- [ ] Confirm device enumerates without Troubleshooting/Test Mode
+
 Prerequisites (on the other machine)
 - Install Visual Studio 2022 (Community is fine).
 - Add workload: "Desktop development with C++" (minimal set is OK).
@@ -37,10 +54,22 @@ Verify catalogs
   `"$env:ProgramFiles(x86)\Windows Kits\10\bin\**\x64\signtool.exe" verify /pa /v "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\ftdiport.cat"`
   `"$env:ProgramFiles(x86)\Windows Kits\10\bin\**\x64\signtool.exe" verify /pa /v "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\ftdibus.cat"`
 
+Export the signing certificate (.cer)
+- Use the helper to export the public cert for deployment:
+  `powershell -NoProfile -ExecutionPolicy Bypass -File "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\export_signing_cert.ps1" -Subject "CN=Micropump Test Signing"`
+  This produces `MicropumpTestSigning.cer` next to the script (or specify `-OutFile`).
+
 Install the drivers
 1) In elevated PowerShell:
    `pnputil /add-driver "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\ftdibus.inf" /install`
    `pnputil /add-driver "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\ftdiport.inf" /install`
+
+Install on target PCs without Troubleshooting/Test Mode
+1) Copy this folder and your exported `.cer` to each PC.
+2) In elevated PowerShell on the target PC, run:
+   `powershell -NoProfile -ExecutionPolicy Bypass -File "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\install_cert_and_drivers.ps1" -CertPath C:\path\to\MicropumpTestSigning.cer`
+   - Adds the cert to Trusted Root and Trusted Publishers (LocalMachine) and installs both drivers with `pnputil`.
+   - If LocalMachine store is restricted, add `-StoreLocation CurrentUser`.
 
 Troubleshooting
 - Script blocked: run PowerShell with `-ExecutionPolicy Bypass` or set an appropriate policy.
@@ -51,4 +80,3 @@ Troubleshooting
 Notes
 - End users installing the signed package do not need Visual Studio/WDK. They only need the `INF` + `CAT` files and can use `pnputil`.
 - For production/distribution without test mode, use a publicly trusted code-signing certificate or Microsoft attestation signing for the catalogs.
-
