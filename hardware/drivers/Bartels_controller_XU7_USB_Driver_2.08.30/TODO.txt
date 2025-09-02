@@ -1,0 +1,54 @@
+Goal: Repack and sign INF catalogs on a machine with Visual Studio + WDK, then install the drivers.
+
+Prerequisites (on the other machine)
+- Install Visual Studio 2022 (Community is fine).
+- Add workload: "Desktop development with C++" (minimal set is OK).
+- Install Windows SDK (10/11) and the matching Windows Driver Kit (WDK).
+
+Verify tools are available
+1) Open an elevated PowerShell.
+2) Check tools (at least one path should be found):
+   `Get-Command Inf2Cat -ErrorAction SilentlyContinue`
+   `Get-Command signtool -ErrorAction SilentlyContinue`
+   If not found, verify WDK/SDK are installed. Tools typically reside under:
+   `C:\Program Files (x86)\Windows Kits\10\bin\<version>\x64\`
+
+Get this folder onto that machine
+- Copy this repo or at minimum this path:
+  `hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30`
+
+Generate and sign catalogs (test signing)
+1) Open elevated PowerShell in the repo root or this driver folder.
+2) Run one of the following:
+
+   A) Create a self-signed test cert, install it to CurrentUser stores, repack and sign (Windows 10 x64):
+      `powershell -NoProfile -ExecutionPolicy Bypass -File "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\repackage_catalogs.ps1" -OSList 10_X64 -Sign -CreateTestCert -InstallTestCert -CertSubject "CN=Micropump Test Signing"`
+
+   B) Sign using an existing code-signing PFX:
+      `powershell -NoProfile -ExecutionPolicy Bypass -File "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\repackage_catalogs.ps1" -OSList 10_X64 -Sign -PfxPath C:\path\to\codesign.pfx -PfxPassword (Read-Host -AsSecureString 'PFX password')`
+
+   Optional: add timestamping (requires internet):
+      append `-TimeStampUrl http://timestamp.digicert.com`
+
+3) Expected result: new `.cat` files in this folder, signed by your cert.
+
+Verify catalogs
+- Check signature:
+  `"$env:ProgramFiles(x86)\Windows Kits\10\bin\**\x64\signtool.exe" verify /pa /v "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\ftdiport.cat"`
+  `"$env:ProgramFiles(x86)\Windows Kits\10\bin\**\x64\signtool.exe" verify /pa /v "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\ftdibus.cat"`
+
+Install the drivers
+1) In elevated PowerShell:
+   `pnputil /add-driver "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\ftdibus.inf" /install`
+   `pnputil /add-driver "hardware\drivers\Bartels_controller_XU7_USB_Driver_2.08.30\ftdiport.inf" /install`
+
+Troubleshooting
+- Script blocked: run PowerShell with `-ExecutionPolicy Bypass` or set an appropriate policy.
+- Catalog/hash error: ensure you generated new `.cat` files with Inf2Cat after any INF edits and that they are signed.
+- Cert not trusted: for test certs, ensure it is installed under CurrentUser → Trusted Root and Trusted Publishers. If needed, enable Test Signing: `bcdedit /set testsigning on` (reboot). Turn off later with `bcdedit /set testsigning off`.
+- Different OS target: adjust `-OSList` (e.g., `10_X86`, include multiple like `"10_X64,10_X86"`).
+
+Notes
+- End users installing the signed package do not need Visual Studio/WDK. They only need the `INF` + `CAT` files and can use `pnputil`.
+- For production/distribution without test mode, use a publicly trusted code-signing certificate or Microsoft attestation signing for the catalogs.
+
