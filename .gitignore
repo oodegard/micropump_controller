@@ -1,0 +1,4 @@
+# Driver signing artifacts (scoped to Bartels XU7 driver folder)
+/hardware/drivers/Bartels_controller_XU7_USB_Driver_2.08.30/*.cat.*.bak
+/hardware/drivers/Bartels_controller_XU7_USB_Driver_2.08.30/*.pfx
+/hardware/drivers/Bartels_controller_XU7_USB_Driver_2.08.30/*.log

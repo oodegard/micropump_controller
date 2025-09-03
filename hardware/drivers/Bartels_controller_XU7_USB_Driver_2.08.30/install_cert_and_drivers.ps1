@@ -6,8 +6,12 @@ param(
     [ValidateSet('LocalMachine','CurrentUser')]
     [string]$StoreLocation = 'LocalMachine',
 
-    [Parameter(Mandatory=$false, HelpMessage='Skip certificate installation step')]
+    [Parameter(Mandatory=$false, HelpMessage='Drivers only; skip certificate installation')]
+    [Alias('DriversOnly')]
     [switch]$InstallOnly,
+
+    [Parameter(Mandatory=$false, HelpMessage='Certificate only; skip driver installation')]
+    [switch]$CertOnly,
 
     [Parameter(Mandatory=$false, HelpMessage='Driver folder containing ftdibus.inf and ftdiport.inf')]
     [string]$DriverDir
@@ -81,12 +85,17 @@ function Install-CertToStores {
 try {
     if (-not $InstallOnly) {
         if (-not $CertPath) {
-            throw 'Please provide -CertPath to a .cer file or use -InstallOnly to skip certificate installation.'
+            throw 'Please provide -CertPath to a .cer file, use -InstallOnly for drivers only, or use -CertOnly for certificate only.'
         }
         Install-CertToStores -Path $CertPath -Location $StoreLocation
         Write-Host 'Certificate import completed.' -ForegroundColor Green
     } else {
         Write-Host 'Skipping certificate installation as requested (-InstallOnly).' -ForegroundColor Yellow
+    }
+
+    if ($CertOnly) {
+        Write-Host 'CertOnly specified; skipping driver installation.' -ForegroundColor Yellow
+        return
     }
 
     Write-Host 'Installing FTDI Bus/D2XX driver (ftdibus.inf)...' -ForegroundColor Cyan
@@ -102,4 +111,3 @@ catch {
     Write-Error $_
     exit 1
 }
-
