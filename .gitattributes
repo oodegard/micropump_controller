@@ -1,0 +1,8 @@
+# Ensure INF files keep CRLF line endings so CAT hashes remain valid
+hardware/drivers/Bartels_controller_XU7_USB_Driver_2.08.30/*.inf text eol=crlf
+
+# Treat catalogs and binaries as binary (no line-ending normalization)
+*.cat binary
+*.dll binary
+*.sys binary
+*.lib binary
