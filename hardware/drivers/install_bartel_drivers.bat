@@ -33,6 +33,7 @@ if '%errorlevel%' NEQ '0' (
 set ZIP_FILE=Bartels_controller_XU7_USB_Driver_2.08.30_cert.zip
 set TEMP_DIR=%TEMP%\DriverInstall
 set PS_SCRIPT=install_cert_and_drivers.ps1
+set CERT_FILE=MicropumpTestSigning.cer
 
 :: Create Temporary Directory
 if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%"
@@ -41,8 +42,12 @@ mkdir "%TEMP_DIR%"
 :: Unzip Driver Folder
 powershell -Command "Expand-Archive -Path \"%~dp0%ZIP_FILE%\" -DestinationPath \"%TEMP_DIR%\" -Force"
 
-:: Run PowerShell Script
-powershell -NoProfile -ExecutionPolicy Bypass -File "%TEMP_DIR%\%PS_SCRIPT%" -CertPath "%TEMP_DIR%\MicropumpTestSigning.cer"
+:: Install Certificate
+powershell -Command "Import-Certificate -FilePath \"%TEMP_DIR%\%CERT_FILE%\" -CertStoreLocation Cert:\LocalMachine\Root"
+powershell -Command "Import-Certificate -FilePath \"%TEMP_DIR%\%CERT_FILE%\" -CertStoreLocation Cert:\LocalMachine\TrustedPublisher"
+
+:: Run PowerShell Script to Install Drivers
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TEMP_DIR%\%PS_SCRIPT%" -CertPath "%TEMP_DIR%\%CERT_FILE%"
 
 :: Cleanup
 rmdir /s /q "%TEMP_DIR%"
