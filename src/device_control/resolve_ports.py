@@ -51,7 +51,19 @@ def list_all_ports() -> list:
 
 if __name__ == "__main__":
     # Example usage
-    print("Available ports:", list_all_ports())
+    import serial.tools.list_ports
+    print("Available ports:")
+    for port in serial.tools.list_ports.comports():
+        label = ""
+        if getattr(port, 'vid', None) == 9025 and getattr(port, 'pid', None) == 67:
+            label = "[Arduino Uno detected]"
+        print(f"  Port: {port.device} {label}\n"
+              f"    Description: {port.description}\n"
+              f"    HWID: {port.hwid}\n"
+              f"    VID: {getattr(port, 'vid', None)}\n"
+              f"    PID: {getattr(port, 'pid', None)}\n"
+              f"    Manufacturer: {getattr(port, 'manufacturer', None)}\n"
+              f"    Serial Number: {getattr(port, 'serial_number', None)}\n")
     try:
         pump_port = find_pump_port_by_description("Bartels")
         print("Pump found on port:", pump_port)
