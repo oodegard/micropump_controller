@@ -41,7 +41,7 @@ run:
 
   - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
 
-  - duration: 40         # Run the pump for X seconds
+  - duration: 400         # Run the pump for X seconds
     commands:
       # During the X seconds, repeat the following commands:
       - action: valve_on
