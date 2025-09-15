@@ -14,24 +14,51 @@ Port resolution order (when not --dry-run):
     2. VID/PID detection via get_port_by_id('pump' / 'arduino') using .env IDs
     3. Fallback defaults: COM4 (pump), COM5 (valve)
 
-The YAML format currently supported (see example file):
-  pump settings:
-    profile name:
-      waveform: RECT
-      voltage: 100
-      freq: 50
-  required hardware:
-    pump: true
-    valve: true
-  run:
-    - pump_on: profile name   (order applied: stop -> waveform -> voltage (Vpp) -> freq -> start)
-    - duration: 120
-      commands:
-        - action: valve_on
-          duration: 5
-        - action: valve_off
-          duration: 5
-    - pump_off: 0
+The YAML format currently supported (see example file) plus extended single-step
+commands:
+
+    pump settings:
+        profile name:
+            waveform: RECT
+            voltage: 100     # Vpp
+            freq: 50         # Hz
+
+    required hardware:
+        pump: true
+        valve: true
+
+    run:
+        # Original style (profile application + start). Now simplified to a mere start
+        # because initial configuration is applied during controller init.
+        - pump_on: profile name
+        - duration: 5
+        - pump_off: 0
+
+        # New granular pump commands (can be mixed):
+        - pump_waveform: RECT      # sets waveform only
+        - pump_voltage: 90         # sets voltage (Vpp) only
+        - pump_freq: 120           # sets frequency only
+        - pump_start: 0            # start (alias to bartels_start)
+        - pump_stop: 0             # stop (alias to bartels_stop)
+        - pump_cycle: 3            # start, wait N seconds, stop
+
+        # Valve commands:
+        - valve_on: 0
+        - valve_off: 0
+        - valve_toggle: 0
+        - valve_state: 0           # queries and prints state
+        - valve_pulse: 150         # pulse N ms (pump must support; Arduino handles it)
+
+        # Mixed timed block (unchanged semantics):
+        - duration: 20
+            commands:
+                - action: valve_on
+                    duration: 2
+                - action: valve_off
+                    duration: 2
+
+        # Simple wait:
+        - duration: 10
 """
 
 from __future__ import annotations
@@ -222,6 +249,67 @@ def run_sequence(
             except Exception as e:
                 print(f"[WARN] Failed to start pump: {e}")
             continue
+        # Granular pump commands
+        if "pump_start" in step:
+            if not pump:
+                sys.exit("Pump requested but not initialized.")
+            print("[ACTION] Pump START")
+            try:
+                pump.bartels_start()
+            except Exception as e:
+                print(f"[WARN] Failed to start pump: {e}")
+            continue
+        if "pump_stop" in step:
+            if not pump:
+                sys.exit("Pump requested but not initialized.")
+            print("[ACTION] Pump STOP")
+            try:
+                pump.bartels_stop()
+            except Exception as e:
+                print(f"[WARN] Failed to stop pump: {e}")
+            continue
+        if "pump_voltage" in step:
+            if not pump:
+                sys.exit("Pump requested but not initialized.")
+            val = step["pump_voltage"]
+            print(f"[ACTION] Set pump voltage -> {val}")
+            try:
+                pump.bartels_set_voltage(val)
+            except Exception as e:
+                print(f"[WARN] Failed to set voltage: {e}")
+            continue
+        if "pump_freq" in step:
+            if not pump:
+                sys.exit("Pump requested but not initialized.")
+            val = step["pump_freq"]
+            print(f"[ACTION] Set pump frequency -> {val}")
+            try:
+                pump.bartels_set_freq(val)
+            except Exception as e:
+                print(f"[WARN] Failed to set frequency: {e}")
+            continue
+        if "pump_waveform" in step:
+            if not pump:
+                sys.exit("Pump requested but not initialized.")
+            val = step["pump_waveform"]
+            print(f"[ACTION] Set pump waveform -> {val}")
+            try:
+                pump.bartels_set_waveform(val)
+            except Exception as e:
+                print(f"[WARN] Failed to set waveform: {e}")
+            continue
+        if "pump_cycle" in step:
+            if not pump:
+                sys.exit("Pump requested but not initialized.")
+            duration = float(step["pump_cycle"]) or 0.0
+            print(f"[ACTION] Pump cycle for {duration}s")
+            try:
+                pump.bartels_start()
+                time.sleep(duration)
+                pump.bartels_stop()
+            except Exception as e:
+                print(f"[WARN] Pump cycle error: {e}")
+            continue
         # Pump OFF
         if "pump_off" in step:
             if not pump:
@@ -231,6 +319,59 @@ def run_sequence(
                 pump.bartels_stop()
             except Exception as e:
                 print(f"[WARN] Could not stop pump cleanly: {e}")
+            continue
+        # Valve commands (single-step outside blocks)
+        if "valve_on" in step:
+            if not valve:
+                sys.exit("Valve requested but not initialized.")
+            print("[ACTION] Valve ON")
+            try:
+                valve.on()
+            except Exception as e:
+                print(f"[WARN] Failed to set valve ON: {e}")
+            continue
+        if "valve_off" in step:
+            if not valve:
+                sys.exit("Valve requested but not initialized.")
+            print("[ACTION] Valve OFF")
+            try:
+                valve.off()
+            except Exception as e:
+                print(f"[WARN] Failed to set valve OFF: {e}")
+            continue
+        if "valve_toggle" in step:
+            if not valve:
+                sys.exit("Valve requested but not initialized.")
+            print("[ACTION] Valve TOGGLE")
+            try:
+                resp = valve.toggle()
+                if resp:
+                    print(f"  [VALVE RESP] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to toggle valve: {e}")
+            continue
+        if "valve_state" in step:
+            if not valve:
+                sys.exit("Valve requested but not initialized.")
+            print("[ACTION] Valve STATE?")
+            try:
+                resp = valve.state()
+                if resp:
+                    print(f"  [VALVE STATE] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to read valve state: {e}")
+            continue
+        if "valve_pulse" in step:
+            if not valve:
+                sys.exit("Valve requested but not initialized.")
+            ms = int(step["valve_pulse"])
+            print(f"[ACTION] Valve PULSE {ms}ms")
+            try:
+                resp = valve.pulse(ms)
+                if resp:
+                    print(f"  [VALVE RESP] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to pulse valve: {e}")
             continue
         # Timed command block
         if "duration" in step and "commands" in step:
