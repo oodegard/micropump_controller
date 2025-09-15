@@ -29,8 +29,11 @@ class BartelsPumpController:
             self.pump = self.initialize_pump()
             time.sleep(0.2)
             self.bartels_set_freq(self.config["bartels_freq"])
-            time.sleep(0.5)
+            time.sleep(0.2)
             self.bartels_set_voltage(self.config["bartels_voltage"])
+            time.sleep(0.2)
+            self.bartels_set_waveform("RECT")
+            time.sleep(0.2)
         except serial.SerialException:
             logging.error("No pump found on " + self.config["pump_port"])
 

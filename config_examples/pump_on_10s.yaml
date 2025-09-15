@@ -1,0 +1,28 @@
+######################################################################
+# Pump on for 10 seconds example
+#
+# This minimal configuration powers the pump using a single profile,
+# keeps it running for 10 seconds, then turns it off.
+#
+# Run (real hardware):
+#   python src/device_control/cli.py config_examples/pump_on_10s.yaml
+# Run (dry-run simulation):
+#   python src/device_control/cli.py --dry-run config_examples/pump_on_10s.yaml
+######################################################################
+
+pump settings:
+  quick test:
+    waveform: RECT
+    voltage: 100   # Vpp
+    freq: 100       # Hz
+
+required hardware:
+  pump: true
+  valve: false
+  pipetting robot: false
+  microscope: false
+
+run:
+  - pump_on: quick test
+  - duration: 10    # Keep pump running for 10 seconds
+  - pump_off: 0     # Value ignored; serves as an action trigger

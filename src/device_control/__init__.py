@@ -7,9 +7,10 @@ via Arduino and serial communication.
 """
 
 from .valve import ValveController
-from .pump import PumpController  # (placeholder for future implementation)
+from .pump import BartelsPumpController
 
-__all__ = ["ValveController", "PumpController"]
+# Public API symbols
+__all__ = ["ValveController", "BartelsPumpController"]
 
 __version__ = "0.1.0"
 __author__ = "Øyvind Ødegård Fougner"

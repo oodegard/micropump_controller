@@ -1,0 +1,62 @@
+######################################################################
+# Example configuration for continuous pump and valve switching
+#
+# This YAML file defines pump settings and a sequence of actions (run)
+# for controlling a micropump and valve. You can edit the values to
+# customize the behavior. Indentation and format are important!
+#
+# - Use spaces (not tabs) for indentation.
+# - All colons (:) must be followed by a space.
+# - Lines starting with '#' are comments and are ignored by the program.
+#
+# Sections:
+#   1. pump settings: Define named pump profiles (voltage, frequency, waveform)
+#   2. run: Sequence of actions to perform (turn pump on/off, operate valve)
+#
+# To add or change steps, copy/paste existing blocks and edit values.
+#
+# See the README or user guide for more details.
+######################################################################
+
+pump settings:
+  # There is only one pump, but we can define different profiles for it.
+  # Define named pump profiles here. You can add more profiles if needed.
+  normal speed:
+    waveform: RECT      # Shape of the pump signal (e.g., RECT = rectangular)
+    voltage: 100        # Voltage to apply to the pump (in Volts)
+    freq: 50            # Frequency of the pump signal (in Hz)
+  slow speed:
+    waveform: RECT      # Shape of the pump signal
+    voltage: 50         # Voltage for slower operation
+    freq: 30            # Frequency for slower operation (in Hz)
+
+required hardware:
+  pump: true             # Set to true if a pump is connected
+  valve: true            # Set to true if a valve is connected
+  pipetting robot: false # TODO: add support for pipetting robot control
+  microscope: false # TODO: add support for microscope control
+run:
+  # Sequence of actions to perform. Each item is a step in the process.
+  # Steps are executed in order, from top to bottom.
+
+  - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
+
+  - duration: 40         # Run the pump for X seconds
+    commands:
+      # During the X seconds, repeat the following commands:
+      - action: valve_on
+        duration: 5       # Open the valve for 5 seconds
+      - action: valve_off
+        duration: 5       # Close the valve for 5 seconds
+      # The valve will switch on and off every 5 seconds during the pump run
+
+  - pump_off: 0           # Turn off the pump (the value '0' is ignored)
+
+# Summary:
+# This example runs the pump for 2 minutes, switching the valve on and off every 5 seconds.
+# Then it repeats the process with a slower pump profile.
+#
+# To customize:
+# - Change the 'voltage' or 'freq' values in 'pump settings' to change the liquid flow rate.
+# - Change the 'duration' values for pump or valve steps.
+# - Add more steps to the 'run' sequence as needed.
