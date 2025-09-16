@@ -94,20 +94,30 @@ Available ports:
 
 
 def list_all_ports() -> list:
-    """
-    List all available serial ports.
+    """List all available serial ports with description, VID and PID.
 
     Returns:
-        list: A list of available serial ports with their descriptions.
+        list: A list of tuples ``(device, description, vid, pid)`` where
+              ``vid`` and ``pid`` are hexadecimal strings (e.g. ``0403``) or ``None``.
     """
     ports = serial.tools.list_ports.comports()
-    return [(port.device, port.description) for port in ports]
+    results = []
+    for port in ports:
+        vid = f"{port.vid:04X}" if getattr(port, 'vid', None) is not None else None
+        pid = f"{port.pid:04X}" if getattr(port, 'pid', None) is not None else None
+        results.append((port.device, port.description, vid, pid))
+    return results
 
 if __name__ == "__main__":
     # List all available ports
     print("Available ports:")
-    for port, desc in list_all_ports():
-        print(f"  Port: {port}\n    Description: {desc}")
+    for device, desc, vid, pid in list_all_ports():
+        print(
+            f"  Port: {device}\n"
+            f"    Description: {desc}\n"
+            f"    VID: {vid if vid is not None else 'N/A'}\n"
+            f"    PID: {pid if pid is not None else 'N/A'}"
+        )
 
     # Check for pump port
     try:
