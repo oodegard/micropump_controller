@@ -1,4 +1,4 @@
-name: micropump_controller
+name: pump-ctrl
 channels:
   - conda-forge
   - defaults
@@ -9,3 +9,4 @@ dependencies:
   - pip:
     - python-dotenv
     - pyyaml
+    - usbx
