@@ -40,6 +40,11 @@ class QuickSetup:
         self.sender_confirm_freq: int = 1200  # Sender confirms with this
         self.receiver_confirm_freq: int = 1100  # Receiver confirms with this
         
+        # Adaptive detection parameters
+        self.detection_threshold: float = 100.0  # Initial threshold
+        self.background_noise: float = 0.0  # Background noise level
+        self.signal_history: list = []  # Track signal quality over time
+        
     def find_working_input_device(self) -> Optional[int]:
         """
         Automatically find a working input device by testing each one.
@@ -104,6 +109,7 @@ class QuickSetup:
                         tolerance: float = 50.0) -> Tuple[bool, float]:
         """
         Detect if a specific frequency is present in audio.
+        Uses adaptive thresholding based on signal-to-noise ratio.
         
         Returns: (detected, peak_magnitude)
         """
@@ -128,9 +134,29 @@ class QuickSetup:
             if np.isnan(peak_mag) or np.isinf(peak_mag):
                 return False, 0.0
             
-            # Check if peak is significant (threshold for detection)
-            threshold = 100.0  # Minimum magnitude to consider as signal
-            detected = peak_mag > threshold
+            # Calculate background noise level (excluding target frequency range)
+            noise_mask = ~freq_mask
+            if np.any(noise_mask):
+                background = float(np.median(magnitude[noise_mask]))
+                self.background_noise = 0.9 * self.background_noise + 0.1 * background  # EMA
+            
+            # Adaptive threshold: must be significantly above background noise
+            # Use lower of: fixed threshold OR 3x background noise (whichever is more lenient)
+            adaptive_threshold = min(self.detection_threshold, max(50.0, 3.0 * self.background_noise))
+            
+            # Also require signal-to-noise ratio > 2.0
+            snr = peak_mag / (self.background_noise + 1e-6)
+            detected = (peak_mag > adaptive_threshold) and (snr > 2.0)
+            
+            # Track signal history for debugging
+            self.signal_history.append({
+                'peak': peak_mag,
+                'threshold': adaptive_threshold,
+                'snr': snr,
+                'detected': detected
+            })
+            if len(self.signal_history) > 10:
+                self.signal_history.pop(0)
             
             return detected, peak_mag
             
@@ -141,12 +167,15 @@ class QuickSetup:
     def listen_for_tone(self, target_freq: float, duration: float = 1.0,
                        show_status: bool = True) -> bool:
         """
-        Listen for a specific frequency.
+        Listen for a specific frequency with improved robustness.
         Returns True if detected, False otherwise.
         """
         try:
+            # Use longer recording duration for better frequency resolution
+            actual_duration = max(duration, 1.5)  # At least 1.5 seconds
+            
             recording = sd.rec(
-                int(duration * self.sample_rate),
+                int(actual_duration * self.sample_rate),
                 samplerate=self.sample_rate,
                 channels=1,
                 device=self.input_device,
@@ -165,13 +194,14 @@ class QuickSetup:
             
             if show_status:
                 if detected:
-                    print(f"  🔊 DETECTED {target_freq} Hz (magnitude: {magnitude:.0f})")
+                    snr = magnitude / (self.background_noise + 1e-6)
+                    print(f"  🔊 DETECTED {target_freq} Hz (mag: {magnitude:.0f}, SNR: {snr:.1f})")
                 else:
                     rms = np.sqrt(np.mean(audio ** 2))
                     if rms > 0.001:
-                        print(f"  ~ audio heard but not {target_freq} Hz (rms: {rms:.4f})")
+                        print(f"  ~ audio heard but not {target_freq} Hz (mag: {magnitude:.0f}, rms: {rms:.4f})")
                     else:
-                        print(f"  - silence")
+                        print(f"  - silence (background: {self.background_noise:.0f})")
             
             return detected
             
@@ -184,6 +214,7 @@ class QuickSetup:
     def handshake_loop(self) -> bool:
         """
         Continuously send 1000 Hz and listen for 1000 Hz from other computer.
+        Improved stability with adaptive detection and recovery mechanisms.
         Once bidirectional connection established, return True.
         """
         print("\n" + "=" * 70)
@@ -195,36 +226,49 @@ class QuickSetup:
         
         consecutive_detections = 0
         required_consecutive = 3  # Need 3 consecutive detections to confirm
+        total_detections = 0  # Track total successful detections
         
-        max_iterations = 60  # 60 seconds timeout
+        max_iterations = 90  # 90 seconds timeout (increased from 60)
         last_status = None  # Track last printed status to avoid duplicates
         
-        # Create continuous tone signal
-        tone_duration = 0.5  # Half second chunks, will loop
+        # Create continuous tone signal with better parameters
+        tone_duration = 0.8  # Longer chunks for better overlap
         t = np.linspace(0, tone_duration, int(self.sample_rate * tone_duration))
-        continuous_signal = 0.3 * np.sin(2 * np.pi * self.handshake_freq * t)
+        continuous_signal = 0.4 * np.sin(2 * np.pi * self.handshake_freq * t)  # Slightly louder
+        
+        # Add smooth fade in/out to prevent clicks
+        fade_len = int(0.05 * self.sample_rate)
+        continuous_signal[:fade_len] *= np.linspace(0, 1, fade_len)
+        continuous_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
         
         # Flag to control playback thread
         stop_playing = threading.Event()
         
         def play_continuous() -> None:
-            """Thread function to continuously play tone"""
+            """Thread function to continuously play tone with minimal gaps"""
             while not stop_playing.is_set():
-                sd.play(continuous_signal, self.sample_rate, device=self.output_device)
-                sd.wait()
+                sd.play(continuous_signal, self.sample_rate, device=self.output_device, blocking=False)
+                time.sleep(tone_duration * 0.9)  # Overlap slightly to avoid gaps
         
         # Start playback thread
         playback_thread = threading.Thread(target=play_continuous, daemon=True)
         playback_thread.start()
         
+        # Give playback thread time to start
+        time.sleep(0.5)
+        
         try:
             for i in range(max_iterations):
                 # Listen for response while tone is playing in background
-                detected = self.listen_for_tone(self.handshake_freq, duration=1.0, show_status=False)
+                # Use longer duration for better detection
+                detected = self.listen_for_tone(self.handshake_freq, duration=1.5, show_status=False)
                 
                 if detected:
                     consecutive_detections += 1
-                    status = f"✓ Response received! ({consecutive_detections}/{required_consecutive})"
+                    total_detections += 1
+                    
+                    # More informative status message
+                    status = f"✓ Response received! ({consecutive_detections}/{required_consecutive}) [total: {total_detections}]"
                     if status != last_status:
                         print(status)
                         last_status = status
@@ -232,21 +276,38 @@ class QuickSetup:
                     if consecutive_detections >= required_consecutive:
                         stop_playing.set()  # Stop the continuous tone
                         sd.stop()
-                        time.sleep(0.2)  # Let it finish
+                        time.sleep(0.3)  # Let it finish cleanly
                         print("\n🎉 BIDIRECTIONAL CONNECTION ESTABLISHED!")
+                        print(f"   Signal quality: {len([h for h in self.signal_history if h['detected']])}/{len(self.signal_history)} detections")
                         return True
                 else:
+                    # Recovery mechanism - don't immediately reset if we had detections
                     if consecutive_detections > 0:
-                        print("Lost connection... resetting")
-                        last_status = None
-                    elif last_status != "- listening...":
-                        print("- listening...")
-                        last_status = "- listening..."
-                    consecutive_detections = 0
+                        # Show we're trying to recover
+                        recovery_msg = f"~ Connection weakened ({consecutive_detections}/{required_consecutive}), recovering..."
+                        if recovery_msg != last_status:
+                            print(recovery_msg)
+                            last_status = recovery_msg
+                        
+                        # Don't reset immediately - give it one more chance
+                        consecutive_detections = max(0, consecutive_detections - 1)
+                    elif total_detections > 0:
+                        # We've had some detections but not consecutive
+                        if last_status != "~ intermittent signal, waiting for stable connection...":
+                            print("~ intermittent signal, waiting for stable connection...")
+                            last_status = "~ intermittent signal, waiting for stable connection..."
+                    else:
+                        # No detections yet
+                        if last_status != "- listening...":
+                            print("- listening...")
+                            last_status = "- listening..."
+                
+                # Brief pause between iterations (not needed since listen_for_tone takes time)
             
             stop_playing.set()  # Stop the continuous tone
             sd.stop()
             print("\n✗ Connection timeout - could not establish bidirectional link")
+            print(f"   Had {total_detections} total detections but not {required_consecutive} consecutive")
             return False
             
         except KeyboardInterrupt:
@@ -284,6 +345,7 @@ class QuickSetup:
         - Receiver sends 1100 Hz
         
         Then both listen for the other's confirmation.
+        Improved stability with longer signals and better timing.
         Returns True if successful.
         """
         print("\n" + "=" * 70)
@@ -305,33 +367,48 @@ class QuickSetup:
             print(f"Waiting for SENDER to send {other_freq} Hz...")
             print("(Press Ctrl+C to cancel)\n")
         
-        max_attempts = 30
+        max_attempts = 45  # Increased from 30
         last_status = None
+        consecutive_detections = 0
+        required_consecutive = 2  # Need 2 consecutive confirmations
         
         for i in range(max_attempts):
-            # Send confirmation tone (0.5 seconds) in background
-            t = np.linspace(0, 0.5, int(self.sample_rate * 0.5))
-            signal = 0.3 * np.sin(2 * np.pi * my_freq * t)
+            # Send confirmation tone (1.0 seconds instead of 0.5) in background
+            t = np.linspace(0, 1.0, int(self.sample_rate * 1.0))
+            signal = 0.4 * np.sin(2 * np.pi * my_freq * t)
+            
+            # Add fade in/out
+            fade_len = int(0.05 * self.sample_rate)
+            signal[:fade_len] *= np.linspace(0, 1, fade_len)
+            signal[-fade_len:] *= np.linspace(1, 0, fade_len)
+            
             sd.play(signal, self.sample_rate, device=self.output_device, blocking=False)
             
-            # Listen for other computer's confirmation
-            time.sleep(0.1)
-            detected = self.listen_for_tone(other_freq, duration=0.5, show_status=False)
+            # Listen for other computer's confirmation (longer duration)
+            time.sleep(0.2)  # Brief delay before listening
+            detected = self.listen_for_tone(other_freq, duration=1.5, show_status=False)
             
             if detected:
-                print(f"✓ Received confirmation from {other_role}!")
+                consecutive_detections += 1
+                print(f"✓ Received confirmation from {other_role}! ({consecutive_detections}/{required_consecutive})")
                 
-                # Send one final confirmation
-                print("  Sending final acknowledgment...")
-                self.play_tone(my_freq, 0.5)
-                
-                return True
+                if consecutive_detections >= required_consecutive:
+                    # Send final strong confirmation burst
+                    print("  Sending final acknowledgment...")
+                    for _ in range(2):
+                        self.play_tone(my_freq, 0.8)
+                        time.sleep(0.2)
+                    
+                    return True
             else:
-                if last_status != "- listening...":
+                if consecutive_detections > 0:
+                    print(f"~ Lost confirmation signal ({consecutive_detections}/{required_consecutive})")
+                    consecutive_detections = max(0, consecutive_detections - 1)  # Gradual decrease
+                elif last_status != "- listening...":
                     print("- listening...")
                     last_status = "- listening..."
             
-            time.sleep(0.5)
+            time.sleep(0.3)  # Brief pause between attempts
         
         print(f"\n✗ Timeout - did not receive confirmation from other computer")
         return False
