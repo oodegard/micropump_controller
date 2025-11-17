@@ -208,7 +208,7 @@ ________________________________________________________________
 - [ ] Document any issues encountered
 - [ ] Prepare for microscope PC deployment
 - [ ] Build production `microscope_control.exe`
-- [ ] Integrate with `cli.py` on microfluidics PC
+- [ ] Integrate with `run_protocol_cli.py` on microfluidics PC
 - [ ] Test on actual microscope setup
 
 ---
@@ -220,7 +220,7 @@ Once testing is successful, prepare for actual microscope integration:
 - [ ] Build `microscope_control.exe` for airgapped microscope PC
 - [ ] Test with actual microscope trigger commands
 - [ ] Add `microscope.py` controller to microfluidics PC
-- [ ] Update `cli.py` to handle `microscope_capture` commands
+- [ ] Update `run_protocol_cli.py` to handle `microscope_capture` commands
 - [ ] Create YAML config with microscope integration
 - [ ] Run full integration test: pump + valve + microscope
 - [ ] Document production usage in main README

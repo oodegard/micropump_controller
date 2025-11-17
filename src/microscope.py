@@ -9,7 +9,7 @@ import sounddevice as sd
 import numpy as np
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 import logging
 
 # Add test_audio_comunication to path for imports
@@ -24,20 +24,34 @@ class Microscope:
     Bidirectional microscope controller using FSK audio modem.
     
     Sends CAPTURE command to trigger acquisition, waits for DONE response.
+    Automatically establishes handshake with receiver on initialization.
     """
     
-    def __init__(self, output_device: Optional[int] = None, input_device: Optional[int] = None):
+    def __init__(self, output_device: Optional[int] = None, input_device: Optional[int] = None,
+                 auto_handshake: bool = True):
         """
         Initialize microscope controller.
         
         Args:
             output_device: Audio output device ID. If None, uses saved or default device.
             input_device: Audio input device ID. If None, uses saved or default device.
+            auto_handshake: If True, automatically perform handshake during initialization.
         """
         self.is_initialized = False
+        self.is_connected = False
         self.last_error = ""
         self.output_device = output_device
         self.input_device = input_device
+        self.sample_rate: int = 44100
+        
+        # Handshake frequencies (matching quick_setup.py)
+        self.calling_tone: int = 900   # Sender sends this
+        self.answer_tone: int = 1100   # Receiver responds with this
+        
+        # Detection parameters
+        self.detection_threshold: float = 15.0
+        self.background_noise: float = 0.0
+        self.signal_history: list = []
         
         # Load saved devices if not specified
         config = load_audio_config()
@@ -69,6 +83,14 @@ class Microscope:
         
         self.is_initialized = True
         logging.info(f"Microscope controller initialized (output: {self.output_device}, input: {self.input_device})")
+        
+        # Perform handshake if requested
+        if auto_handshake:
+            print("\nEstablishing connection with microscope...")
+            if not self.establish_handshake():
+                self.last_error = "Handshake failed"
+                self.is_initialized = False
+                logging.error("Failed to establish handshake with microscope")
     
     def acquire(self, timeout: float = 300.0) -> bool:
         """
@@ -84,6 +106,10 @@ class Microscope:
         """
         if not self.is_initialized:
             print(f"✗ Microscope not initialized: {self.last_error}")
+            return False
+        
+        if not self.is_connected:
+            print("✗ Not connected to microscope. Run establish_handshake() first.")
             return False
         
         try:
@@ -114,6 +140,168 @@ class Microscope:
             self.last_error = f"Acquisition failed: {e}"
             print(f"✗ {self.last_error}")
             logging.error(self.last_error)
+            return False
+    
+    def detect_frequency(self, audio: np.ndarray, target_freq: float, 
+                        tolerance: float = 50.0) -> Tuple[bool, float]:
+        """
+        Detect if a specific frequency is present in audio.
+        Uses adaptive thresholding based on signal-to-noise ratio.
+        
+        Returns: (detected, peak_magnitude)
+        """
+        if len(audio) == 0 or np.all(audio == 0):
+            return False, 0.0
+        
+        try:
+            fft = np.fft.rfft(audio)
+            freqs = np.fft.rfftfreq(len(audio), 1 / self.sample_rate)
+            magnitude = np.abs(fft)
+            
+            # Find peak near target frequency
+            freq_mask = (freqs >= target_freq - tolerance) & (freqs <= target_freq + tolerance)
+            if not np.any(freq_mask):
+                return False, 0.0
+            
+            peak_mag = float(np.max(magnitude[freq_mask]))
+            
+            if np.isnan(peak_mag) or np.isinf(peak_mag):
+                return False, 0.0
+            
+            # Calculate background noise
+            noise_mask = ~freq_mask
+            if np.any(noise_mask):
+                background = float(np.median(magnitude[noise_mask]))
+                self.background_noise = 0.9 * self.background_noise + 0.1 * background
+            
+            # Adaptive threshold
+            adaptive_threshold = min(self.detection_threshold, max(10.0, 1.5 * self.background_noise))
+            
+            # Require SNR > 1.2
+            snr = peak_mag / (self.background_noise + 1e-6)
+            detected = (peak_mag > adaptive_threshold) and (snr > 1.2)
+            
+            self.signal_history.append({
+                'peak': peak_mag,
+                'threshold': adaptive_threshold,
+                'snr': snr,
+                'detected': detected
+            })
+            if len(self.signal_history) > 10:
+                self.signal_history.pop(0)
+            
+            return detected, peak_mag
+            
+        except Exception:
+            return False, 0.0
+    
+    def listen_for_tone(self, target_freq: float, duration: float = 1.5) -> bool:
+        """
+        Listen for a specific frequency.
+        Returns True if detected, False otherwise.
+        """
+        try:
+            actual_duration = max(duration, 1.5)
+            
+            recording = sd.rec(
+                int(actual_duration * self.sample_rate),
+                samplerate=self.sample_rate,
+                channels=1,
+                device=self.input_device,
+                dtype='float32'
+            )
+            sd.wait()
+            
+            audio = recording[:, 0]
+            
+            if len(audio) == 0:
+                return False
+            
+            detected, magnitude = self.detect_frequency(audio, target_freq)
+            return detected
+            
+        except Exception:
+            return False
+    
+    def establish_handshake(self) -> bool:
+        """
+        Sender (calling) side of handshake:
+        1. Send continuous 900 Hz calling tone
+        2. Listen for 1100 Hz answer tone from receiver
+        3. Once answer detected 3 times, STOP calling and confirm
+        
+        Returns:
+            True if handshake successful, False otherwise
+        """
+        print("\n" + "=" * 70)
+        print("ESTABLISHING CONNECTION - SENDER MODE")
+        print("=" * 70)
+        print("\nSending 900 Hz calling tone...")
+        print("Waiting for 1100 Hz answer from receiver...")
+        print("(Press Ctrl+C to cancel)\n")
+        
+        # Create calling tone
+        tone_duration = 0.5
+        t = np.linspace(0, tone_duration, int(self.sample_rate * tone_duration))
+        calling_signal = 0.4 * np.sin(2 * np.pi * self.calling_tone * t)
+        
+        # Add fade
+        fade_len = int(0.02 * self.sample_rate)
+        calling_signal[:fade_len] *= np.linspace(0, 1, fade_len)
+        calling_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
+        
+        consecutive_detections = 0
+        required_consecutive = 3
+        iteration = 0
+        
+        try:
+            while True:
+                iteration += 1
+                
+                # Send calling tone
+                sd.play(calling_signal, self.sample_rate, device=self.output_device, blocking=True)
+                
+                # Brief delay
+                time.sleep(0.2)
+                
+                # Listen for answer tone
+                print(f"[{iteration}] Listening for 1100 Hz answer tone...", end=' ', flush=True)
+                detected = self.listen_for_tone(self.answer_tone, duration=1.5)
+                
+                if detected:
+                    consecutive_detections += 1
+                    print(f"✓ DETECTED! ({consecutive_detections}/{required_consecutive})")
+                    
+                    if consecutive_detections >= required_consecutive:
+                        # STOP sending calling tone so receiver knows we're done
+                        sd.stop()
+                        print("\n✓ Answer confirmed! Stopping calling tone...")
+                        
+                        # Wait for receiver to detect we stopped
+                        time.sleep(2.0)
+                        
+                        print("🎉 CONNECTION ESTABLISHED!")
+                        self.is_connected = True
+                        return True
+                else:
+                    if len(self.signal_history) > 0:
+                        last_sig = self.signal_history[-1]
+                        print(f"not detected (peak: {last_sig['peak']:.0f}, threshold: {last_sig['threshold']:.0f})")
+                    else:
+                        print("not detected")
+                    
+                    if consecutive_detections > 0:
+                        print("  Lost answer tone... resetting")
+                    consecutive_detections = 0
+                    
+        except KeyboardInterrupt:
+            sd.stop()
+            print("\n✗ Connection cancelled by user")
+            return False
+        except Exception as e:
+            sd.stop()
+            print(f"\n✗ Handshake error: {e}")
+            logging.error(f"Handshake error: {e}")
             return False
     
     def _wait_for_done(self, timeout: float) -> bool:

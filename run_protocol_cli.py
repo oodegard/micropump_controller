@@ -7,8 +7,8 @@
 Command-line interface for running pump/valve sequences from a YAML file.
 
 Usage examples (from project root):
-    python -m device_control.cli config_examples/continuous_switching.yaml
-    python src/device_control/cli.py config_examples/continuous_switching.yaml
+    python run_protocol_cli.py config_examples/continuous_switching.yaml
+    uv run python run_protocol_cli.py config_examples/continuous_switching.yaml
 
 Flags:
     --dry-run     Simulate; no serial ports opened (mock devices)

@@ -5,9 +5,9 @@
 # a few times to verify communication and hardware functionality.
 #
 # Run (real hardware):
-#   uv run python cli.py config_examples/valve_test.yaml
+#   uv run python run_protocol_cli.py config_examples/valve_test.yaml
 # Run (dry-run simulation):
-#   uv run python cli.py --dry-run config_examples/valve_test.yaml
+#   uv run python run_protocol_cli.py --dry-run config_examples/valve_test.yaml
 ######################################################################
 
 pump settings:

@@ -42,13 +42,13 @@ WSL support enables cross-platform deployment without VM overhead:
 Use YAML configs in `config_examples/` for complex sequences:
 ```bash
 # Test with mock devices
-uv run python cli.py --dry-run config_examples/pump_on_10s.yaml
+uv run python run_protocol_cli.py --dry-run config_examples/pump_on_10s.yaml
 
 # Real hardware with port auto-detection  
-uv run python cli.py config_examples/continuous_switching.yaml
+uv run python run_protocol_cli.py config_examples/continuous_switching.yaml
 
 # Force manual port configuration
-PUMP_PORT=COM3 uv run python cli.py config_examples/pump_on_10s.yaml
+PUMP_PORT=COM3 uv run python run_protocol_cli.py config_examples/pump_on_10s.yaml
 ```
 
 ### Environment Setup Commands
@@ -67,7 +67,7 @@ uv run python -c "from src.resolve_ports import get_port_by_id; print(get_port_b
 Use `src/audio/monitor.py` for debugging pump operations:
 ```bash
 # Monitor any command execution
-uv run python src/audio/monitor.py "uv run python cli.py config_examples/pump_on_10s.yaml"
+uv run python src/audio/monitor.py "uv run python run_protocol_cli.py config_examples/pump_on_10s.yaml"
 
 # Test device discovery
 uv run python src/audio/discovery.py

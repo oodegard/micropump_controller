@@ -3,7 +3,7 @@
 ## Overview
 
 This folder contains an **FSK (Frequency Shift Keying) audio modem** for communicating between:
-- **Microfluidics PC** (this computer) running `cli.py`
+- **Microfluidics PC** (this computer) running `run_protocol_cli.py`
 - **Microscope PC** (airgapped computer) running `microscope_control.exe`
 
 The system uses audio tones (like old-school modems) to send commands without any physical connection.
@@ -166,7 +166,7 @@ Position speaker near microphone between the two PCs. If you receive the PING co
 Once both test PCs pass:
 
 1. **Build microscope control software** (`microscope_control.exe`)
-2. **Integrate with `cli.py`** on microfluidics PC
+2. **Integrate with `run_protocol_cli.py`** on microfluidics PC
 3. **Add YAML command:** `microscope_capture: 0`
 4. **Deploy to production** microscope PC
 

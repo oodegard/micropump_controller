@@ -2,19 +2,21 @@
 Microscope Listener - Bidirectional audio communication for microscope control
 
 This runs on the MICROSCOPE PC (airgapped computer).
-1. Listens for CAPTURE command via FSK audio modem
-2. Clicks the "Acquire" button
-3. Monitors button state (waits for grey, then normal again)
-4. Sends DONE command back when acquisition completes
+1. Establishes handshake with sender (responds to calling tone)
+2. Listens for CAPTURE command via FSK audio modem
+3. Clicks the "Acquire" button at specified position
+4. Monitors button state (waits for grey, then normal again)
+5. Sends DONE command back when acquisition completes
 
 Usage:
-    python microscope_listener.py
+    python microscope_listener.py --button-x 100 --button-y 200
 """
 
 import sounddevice as sd
 import numpy as np
 import pyautogui
 import time
+import argparse
 from pathlib import Path
 from typing import Optional, Tuple
 from PIL import ImageGrab
@@ -25,10 +27,18 @@ sys.path.insert(0, str(Path(__file__).parent / "test_audio_comunication"))
 from audio_config import load_audio_config, save_audio_config
 from audio_protocol import AudioModem, Command, FSKConfig
 
-# Screen click configuration (to be customized per setup)
-BUTTON_X = None  # Will be configured on first run
-BUTTON_Y = None
-BUTTON_NORMAL_COLOR = None  # RGB color of button when ready (will be calibrated)
+# Screen click configuration (will be set from command line args or use default)
+BUTTON_IMAGE_PATH = None  # Path to button image for recognition
+DEFAULT_BUTTON_IMAGE = "run.png"  # Default image in project root
+
+# Handshake frequencies (matching Microscope class)
+CALLING_TONE = 900   # Sender sends this
+ANSWER_TONE = 1100   # Receiver (this PC) responds with this
+
+# Detection parameters
+DETECTION_THRESHOLD = 15.0
+BACKGROUND_NOISE = 0.0
+SIGNAL_HISTORY = []
 
 
 def find_audio_devices() -> Tuple[int, int]:
@@ -84,107 +94,65 @@ def find_audio_devices() -> Tuple[int, int]:
     return input_id, output_id
 
 
-def setup_button_position() -> Tuple[int, int]:
+def find_button_on_screen(image_path: str, confidence: float = 0.8) -> Optional[Tuple[int, int]]:
     """
-    Get user to position mouse over Acquire button.
-    
-    Returns:
-        (x, y) coordinates of button
-    """
-    global BUTTON_X, BUTTON_Y
-    
-    print("\n" + "=" * 70)
-    print("ACQUIRE BUTTON POSITION SETUP")
-    print("=" * 70)
-    print("\nMove your mouse over the 'Acquire' button.")
-    print("You have 5 seconds...")
-    
-    for i in range(5, 0, -1):
-        print(f"  {i}...", flush=True)
-        time.sleep(1)
-    
-    BUTTON_X, BUTTON_Y = pyautogui.position()
-    print(f"\n✓ Button position saved: ({BUTTON_X}, {BUTTON_Y})")
-    print("=" * 70 + "\n")
-    
-    return BUTTON_X, BUTTON_Y
-
-
-def calibrate_button_color(x: int, y: int) -> Tuple[int, int, int]:
-    """
-    Capture the normal (ready) color of the Acquire button.
+    Find the Acquire button on screen using image recognition.
     
     Args:
-        x, y: Button coordinates
+        image_path: Path to button image file
+        confidence: Match confidence (0.0 to 1.0)
     
     Returns:
-        (R, G, B) color tuple
+        (x, y) center coordinates of button, or None if not found
     """
-    global BUTTON_NORMAL_COLOR
+    print(f"\n🔍 Looking for button using image: {image_path}")
     
-    print("\n" + "=" * 70)
-    print("BUTTON COLOR CALIBRATION")
-    print("=" * 70)
-    print("\nMake sure the Acquire button is in its NORMAL state (not grey/disabled).")
-    input("Press Enter when ready...")
-    
-    # Capture small region around button
-    screenshot = ImageGrab.grab(bbox=(x-5, y-5, x+5, y+5))
-    pixels = list(screenshot.getdata())
-    
-    # Average the color (in case of antialiasing)
-    r = sum(p[0] for p in pixels) // len(pixels)
-    g = sum(p[1] for p in pixels) // len(pixels)
-    b = sum(p[2] for p in pixels) // len(pixels)
-    
-    BUTTON_NORMAL_COLOR = (r, g, b)
-    print(f"✓ Normal button color: RGB({r}, {g}, {b})")
-    print("=" * 70 + "\n")
-    
-    return BUTTON_NORMAL_COLOR
+    try:
+        location = pyautogui.locateOnScreen(image_path, confidence=confidence)
+        if location:
+            # Get center of matched region
+            center_x = location.left + location.width // 2
+            center_y = location.top + location.height // 2
+            print(f"✓ Button found at ({center_x}, {center_y})")
+            return (center_x, center_y)
+        else:
+            print(f"✗ Button image not found on screen")
+            return None
+    except Exception as e:
+        print(f"✗ Error finding button: {e}")
+        return None
 
 
-def is_button_normal(x: int, y: int, normal_color: Tuple[int, int, int]) -> bool:
+def is_button_visible(image_path: str, confidence: float = 0.8) -> bool:
     """
-    Check if button is back to normal color (acquisition complete).
+    Check if button is visible on screen (acquisition complete).
     
     Args:
-        x, y: Button coordinates
-        normal_color: RGB color of normal state
+        image_path: Path to button image file
+        confidence: Match confidence (0.0 to 1.0)
     
     Returns:
-        True if button appears to be in normal state
+        True if button is found on screen (acquisition complete)
     """
-    # Capture button region
-    screenshot = ImageGrab.grab(bbox=(x-5, y-5, x+5, y+5))
-    pixels = list(screenshot.getdata())
-    
-    # Average current color
-    r = sum(p[0] for p in pixels) // len(pixels)
-    g = sum(p[1] for p in pixels) // len(pixels)
-    b = sum(p[2] for p in pixels) // len(pixels)
-    
-    # Check if similar to normal color (within tolerance)
-    tolerance = 30  # RGB difference tolerance
-    r_diff = abs(r - normal_color[0])
-    g_diff = abs(g - normal_color[1])
-    b_diff = abs(b - normal_color[2])
-    
-    return r_diff < tolerance and g_diff < tolerance and b_diff < tolerance
+    try:
+        location = pyautogui.locateOnScreen(image_path, confidence=confidence)
+        return location is not None
+    except Exception:
+        return False
 
 
-def wait_for_acquisition_complete(x: int, y: int, normal_color: Tuple[int, int, int], 
-                                   max_wait: float = 600.0) -> bool:
+def wait_for_acquisition_complete(image_path: str, max_wait: float = 600.0, 
+                                   confidence: float = 0.8) -> bool:
     """
-    Monitor button state until acquisition completes.
+    Monitor button visibility until acquisition completes.
     
-    Wait 1 second, then check if button is grey (acquisition running).
-    Then wait for it to return to normal (acquisition done).
+    Wait 1 second, then check if button disappeared (acquisition running).
+    Then wait for it to reappear (acquisition done).
     
     Args:
-        x, y: Button coordinates
-        normal_color: RGB color of normal state
+        image_path: Path to button image file
         max_wait: Maximum time to wait in seconds
+        confidence: Match confidence (0.0 to 1.0)
     
     Returns:
         True if acquisition completed, False on timeout
@@ -192,15 +160,15 @@ def wait_for_acquisition_complete(x: int, y: int, normal_color: Tuple[int, int, 
     print("  Waiting 1 second before monitoring...")
     time.sleep(1.0)
     
-    # Check if button went grey (acquisition started)
+    # Check if button disappeared (acquisition started)
     print("  Checking if acquisition started...")
-    if is_button_normal(x, y, normal_color):
-        print("  ⚠ Button still normal color - acquisition may not have started")
+    if is_button_visible(image_path, confidence):
+        print("  ⚠ Button still visible - acquisition may not have started")
     else:
-        print("  ✓ Button changed (acquisition running)")
+        print("  ✓ Button disappeared (acquisition running)")
     
-    # Now wait for it to return to normal
-    print(f"  Monitoring button state (max {max_wait}s)...")
+    # Now wait for it to reappear
+    print(f"  Monitoring button visibility (max {max_wait}s)...")
     start_time = time.time()
     check_count = 0
     
@@ -208,8 +176,8 @@ def wait_for_acquisition_complete(x: int, y: int, normal_color: Tuple[int, int, 
         check_count += 1
         elapsed = time.time() - start_time
         
-        if is_button_normal(x, y, normal_color):
-            print(f"  ✓ Button returned to normal after {elapsed:.1f}s ({check_count} checks)")
+        if is_button_visible(image_path, confidence):
+            print(f"  ✓ Button reappeared after {elapsed:.1f}s ({check_count} checks)")
             return True
         
         # Check every 2 seconds
@@ -245,22 +213,195 @@ def send_done_signal(output_device: int, modem: AudioModem) -> bool:
         return False
 
 
-def listen_and_respond(input_device: int, output_device: int) -> None:
+def detect_frequency(audio: np.ndarray, target_freq: float, sample_rate: int = 44100,
+                    tolerance: float = 50.0) -> Tuple[bool, float]:
+    """
+    Detect if a specific frequency is present in audio.
+    
+    Returns: (detected, peak_magnitude)
+    """
+    global BACKGROUND_NOISE, SIGNAL_HISTORY
+    
+    if len(audio) == 0 or np.all(audio == 0):
+        return False, 0.0
+    
+    try:
+        fft = np.fft.rfft(audio)
+        freqs = np.fft.rfftfreq(len(audio), 1 / sample_rate)
+        magnitude = np.abs(fft)
+        
+        freq_mask = (freqs >= target_freq - tolerance) & (freqs <= target_freq + tolerance)
+        if not np.any(freq_mask):
+            return False, 0.0
+        
+        peak_mag = float(np.max(magnitude[freq_mask]))
+        
+        if np.isnan(peak_mag) or np.isinf(peak_mag):
+            return False, 0.0
+        
+        # Background noise
+        noise_mask = ~freq_mask
+        if np.any(noise_mask):
+            background = float(np.median(magnitude[noise_mask]))
+            BACKGROUND_NOISE = 0.9 * BACKGROUND_NOISE + 0.1 * background
+        
+        adaptive_threshold = min(DETECTION_THRESHOLD, max(10.0, 1.5 * BACKGROUND_NOISE))
+        snr = peak_mag / (BACKGROUND_NOISE + 1e-6)
+        detected = (peak_mag > adaptive_threshold) and (snr > 1.2)
+        
+        SIGNAL_HISTORY.append({
+            'peak': peak_mag,
+            'threshold': adaptive_threshold,
+            'snr': snr,
+            'detected': detected
+        })
+        if len(SIGNAL_HISTORY) > 10:
+            SIGNAL_HISTORY.pop(0)
+        
+        return detected, peak_mag
+        
+    except Exception:
+        return False, 0.0
+
+
+def listen_for_tone(target_freq: float, input_device: int, sample_rate: int = 44100,
+                   duration: float = 1.5) -> bool:
+    """
+    Listen for a specific frequency.
+    Returns True if detected, False otherwise.
+    """
+    try:
+        actual_duration = max(duration, 1.5)
+        
+        recording = sd.rec(
+            int(actual_duration * sample_rate),
+            samplerate=sample_rate,
+            channels=1,
+            device=input_device,
+            dtype='float32'
+        )
+        sd.wait()
+        
+        audio = recording[:, 0]
+        
+        if len(audio) == 0:
+            return False
+        
+        detected, magnitude = detect_frequency(audio, target_freq, sample_rate)
+        return detected
+        
+    except Exception:
+        return False
+
+
+def establish_handshake_receiver(input_device: int, output_device: int, 
+                                sample_rate: int = 44100) -> bool:
+    """
+    Receiver (answering) side of handshake:
+    1. Listen for 900 Hz calling tone from sender (need 3 consecutive)
+    2. Once confirmed, respond with continuous 1100 Hz answer tone
+    3. Keep sending until sender confirms (by stopping calling tone)
+    
+    Returns:
+        True if handshake successful, False otherwise
+    """
+    global SIGNAL_HISTORY
+    
+    print("\n" + "=" * 70)
+    print("ESTABLISHING CONNECTION - RECEIVER MODE")
+    print("=" * 70)
+    print("\nListening for 900 Hz calling tone from sender...")
+    print("(Press Ctrl+C to cancel)\n")
+    
+    # Phase 1: Confirm calling tone
+    consecutive_calling = 0
+    required_calling_detections = 3
+    
+    try:
+        print("- listening for calling tone...")
+        
+        while consecutive_calling < required_calling_detections:
+            detected = listen_for_tone(CALLING_TONE, input_device, sample_rate, duration=1.5)
+            
+            if detected:
+                consecutive_calling += 1
+                print(f"✓ Calling tone detected! ({consecutive_calling}/{required_calling_detections})")
+            else:
+                if consecutive_calling > 0:
+                    print(f"Lost calling tone, resetting ({consecutive_calling} -> 0)")
+                consecutive_calling = 0
+                
+            time.sleep(0.3)
+        
+        print("\n✓ Calling tone confirmed! Starting answer phase...")
+        
+        # Phase 2: Respond with answer tone continuously
+        print("Sending 1100 Hz answer tone continuously...")
+        
+        # Create answer tone
+        tone_duration = 0.5
+        t = np.linspace(0, tone_duration, int(sample_rate * tone_duration))
+        answer_signal = 0.4 * np.sin(2 * np.pi * ANSWER_TONE * t)
+        
+        # Add fade
+        fade_len = int(0.02 * sample_rate)
+        answer_signal[:fade_len] *= np.linspace(0, 1, fade_len)
+        answer_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
+        
+        # Keep sending and checking if sender stopped
+        iteration = 0
+        no_calling_count = 0
+        
+        while True:
+            iteration += 1
+            
+            # Send answer tone
+            sd.play(answer_signal, sample_rate, device=output_device, blocking=True)
+            time.sleep(0.2)
+            
+            # Check if sender stopped calling
+            print(f"[{iteration}] Sending answer, checking for calling tone...", end=' ', flush=True)
+            still_calling = listen_for_tone(CALLING_TONE, input_device, sample_rate, duration=1.0)
+            
+            if not still_calling:
+                no_calling_count += 1
+                print(f"no calling tone (sender may have confirmed) [{no_calling_count}/3]")
+                
+                if no_calling_count >= 3:
+                    sd.stop()
+                    print("\n🎉 CONNECTION ESTABLISHED!")
+                    print("(Sender stopped calling tone - they detected our answer)")
+                    return True
+            else:
+                print("✓ still hearing calling tone (sender waiting for our answer)")
+                no_calling_count = 0
+        
+    except KeyboardInterrupt:
+        sd.stop()
+        print("\n✗ Connection cancelled by user")
+        return False
+    except Exception as e:
+        sd.stop()
+        print(f"\n✗ Handshake error: {e}")
+        return False
+
+
+def listen_and_respond(input_device: int, output_device: int, image_path: str) -> None:
     """
     Main listening loop - waits for CAPTURE, clicks button, monitors, sends DONE.
     
     Args:
         input_device: Audio input device ID
         output_device: Audio output device ID
+        image_path: Path to button image for recognition
     """
-    global BUTTON_X, BUTTON_Y, BUTTON_NORMAL_COLOR
+    # Verify button image exists
+    if not Path(image_path).exists():
+        print(f"\n✗ ERROR: Button image not found: {image_path}")
+        print("Please provide a valid image file of the Acquire button.")
+        return
     
-    # Setup button if not configured
-    if BUTTON_X is None or BUTTON_Y is None:
-        BUTTON_X, BUTTON_Y = setup_button_position()
-    
-    if BUTTON_NORMAL_COLOR is None:
-        BUTTON_NORMAL_COLOR = calibrate_button_color(BUTTON_X, BUTTON_Y)
+    print(f"\nUsing button image: {image_path}")
     
     # Initialize modem
     modem = AudioModem(FSKConfig())
@@ -271,7 +412,7 @@ def listen_and_respond(input_device: int, output_device: int) -> None:
     print("=" * 70)
     print(f"\nListening on device {input_device}")
     print(f"Will send DONE on device {output_device}")
-    print(f"Button position: ({BUTTON_X}, {BUTTON_Y})")
+    print(f"Button image: {image_path}")
     print("\nPress Ctrl+C to stop\n")
     
     chunk_duration = 5.0  # Record in 5-second chunks
@@ -312,14 +453,19 @@ def listen_and_respond(input_device: int, output_device: int) -> None:
             if command == Command.CAPTURE:
                 print("  ✓ CAPTURE command received!")
                 
-                # Click Acquire button
-                print(f"  🖱️  Clicking Acquire button at ({BUTTON_X}, {BUTTON_Y})...")
-                pyautogui.click(BUTTON_X, BUTTON_Y)
+                # Find and click Acquire button
+                print("  🖱️  Finding and clicking Acquire button...")
+                button_pos = find_button_on_screen(image_path)
+                if not button_pos:
+                    print("  ✗ Could not find button on screen!")
+                    continue
+                
+                pyautogui.click(button_pos[0], button_pos[1])
                 print("  ✓ Button clicked")
                 
                 # Wait for acquisition to complete
                 print("  ⏳ Monitoring acquisition...")
-                if wait_for_acquisition_complete(BUTTON_X, BUTTON_Y, BUTTON_NORMAL_COLOR):
+                if wait_for_acquisition_complete(image_path):
                     print("  ✓ Acquisition complete!")
                     
                     # Send DONE signal
@@ -341,17 +487,41 @@ def listen_and_respond(input_device: int, output_device: int) -> None:
 
 def main() -> None:
     """Main entry point"""
+    global BUTTON_IMAGE_PATH
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description='Microscope Listener - Responds to audio commands and clicks Acquire button'
+    )
+    parser.add_argument('--button-image', type=str, 
+                       help=f'Path to button image file (default: {DEFAULT_BUTTON_IMAGE})')
+    args = parser.parse_args()
+    
+    # Set button image path
+    if args.button_image:
+        BUTTON_IMAGE_PATH = args.button_image
+    else:
+        BUTTON_IMAGE_PATH = DEFAULT_BUTTON_IMAGE
+    
+    print(f"Button image: {BUTTON_IMAGE_PATH}")
+    
     print("\n")
     print("=" * 70)
     print("MICROSCOPE LISTENER - BIDIRECTIONAL MODE")
-    print("Listens for CAPTURE, clicks Acquire, sends DONE when complete")
+    print("Responds to handshake, listens for CAPTURE, clicks Acquire, sends DONE")
     print("=" * 70)
     
     # Find audio devices
     input_device, output_device = find_audio_devices()
     
-    # Start listening
-    listen_and_respond(input_device, output_device)
+    # Establish handshake first
+    print("\nEstablishing connection with sender...")
+    if not establish_handshake_receiver(input_device, output_device):
+        print("\n✗ Failed to establish handshake. Exiting.")
+        return
+    
+    # Start listening for commands
+    listen_and_respond(input_device, output_device, BUTTON_IMAGE_PATH)
 
 
 if __name__ == "__main__":

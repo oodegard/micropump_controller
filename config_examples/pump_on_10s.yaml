@@ -5,9 +5,9 @@
 # keeps it running for 10 seconds, then turns it off.
 #
 # Run (real hardware):
-#   python src/device_control/cli.py config_examples/pump_on_10s.yaml
+#   python run_protocol_cli.py config_examples/pump_on_10s.yaml
 # Run (dry-run simulation):
-#   python src/device_control/cli.py --dry-run config_examples/pump_on_10s.yaml
+#   python run_protocol_cli.py --dry-run config_examples/pump_on_10s.yaml
 ######################################################################
 
 pump settings:

@@ -102,10 +102,10 @@ sequence:
 
 ```bash
 # Run workflow with microscope integration
-uv run python cli.py config_examples/microscope_workflow.yaml
+uv run python run_protocol_cli.py config_examples/microscope_workflow.yaml
 
 # Test without hardware (dry run)
-uv run python cli.py --dry-run config_examples/microscope_workflow.yaml
+uv run python run_protocol_cli.py --dry-run config_examples/microscope_workflow.yaml
 ```
 
 ## Troubleshooting
