@@ -214,13 +214,13 @@ class QuickSetup:
     def handshake_loop(self) -> bool:
         """
         Continuously send 1000 Hz and listen for 1000 Hz from other computer.
-        Improved stability with adaptive detection and recovery mechanisms.
+        Alternates between sending and listening to avoid self-detection.
         Once bidirectional connection established, return True.
         """
         print("\n" + "=" * 70)
         print("ESTABLISHING CONNECTION")
         print("=" * 70)
-        print("\nSending continuous 1000 Hz handshake signal...")
+        print("\nSending 1000 Hz handshake signal...")
         print("Listening for response from other computer...")
         print("(Press Ctrl+C to cancel)\n")
         
@@ -232,39 +232,28 @@ class QuickSetup:
         iteration = 0
         last_status = None  # Track last printed status to avoid duplicates
         
-        # Create continuous tone signal with better parameters
-        tone_duration = 0.8  # Longer chunks for better overlap
+        # Create tone signal
+        tone_duration = 0.5
         t = np.linspace(0, tone_duration, int(self.sample_rate * tone_duration))
-        continuous_signal = 0.4 * np.sin(2 * np.pi * self.handshake_freq * t)  # Slightly louder
+        signal = 0.4 * np.sin(2 * np.pi * self.handshake_freq * t)
         
         # Add smooth fade in/out to prevent clicks
-        fade_len = int(0.05 * self.sample_rate)
-        continuous_signal[:fade_len] *= np.linspace(0, 1, fade_len)
-        continuous_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
-        
-        # Flag to control playback thread
-        stop_playing = threading.Event()
-        
-        def play_continuous() -> None:
-            """Thread function to continuously play tone with minimal gaps"""
-            while not stop_playing.is_set():
-                sd.play(continuous_signal, self.sample_rate, device=self.output_device, blocking=False)
-                time.sleep(tone_duration * 0.9)  # Overlap slightly to avoid gaps
-        
-        # Start playback thread
-        playback_thread = threading.Thread(target=play_continuous, daemon=True)
-        playback_thread.start()
-        
-        # Give playback thread time to start
-        time.sleep(0.5)
+        fade_len = int(0.02 * self.sample_rate)
+        signal[:fade_len] *= np.linspace(0, 1, fade_len)
+        signal[-fade_len:] *= np.linspace(1, 0, fade_len)
         
         try:
             while True:  # Loop indefinitely until connection or Ctrl+C
                 iteration += 1
                 
-                # Listen for response while tone is playing in background
-                # Use longer duration for better detection
-                detected = self.listen_for_tone(self.handshake_freq, duration=1.5, show_status=False)
+                # SEND phase - play tone
+                sd.play(signal, self.sample_rate, device=self.output_device, blocking=True)
+                
+                # Brief delay to let our own signal dissipate
+                time.sleep(0.3)
+                
+                # LISTEN phase - listen for response (our signal should be gone now)
+                detected = self.listen_for_tone(self.handshake_freq, duration=1.0, show_status=False)
                 
                 if detected:
                     consecutive_detections += 1
@@ -277,8 +266,7 @@ class QuickSetup:
                         last_status = status
                     
                     if consecutive_detections >= required_consecutive:
-                        stop_playing.set()  # Stop the continuous tone
-                        sd.stop()
+                        sd.stop()  # Stop any ongoing playback
                         time.sleep(0.3)  # Let it finish cleanly
                         print("\n🎉 BIDIRECTIONAL CONNECTION ESTABLISHED!")
                         print(f"   Signal quality: {len([h for h in self.signal_history if h['detected']])}/{len(self.signal_history)} detections")
@@ -308,7 +296,6 @@ class QuickSetup:
                 # Brief pause between iterations (not needed since listen_for_tone takes time)
             
         except KeyboardInterrupt:
-            stop_playing.set()
             sd.stop()
             print("\n✗ Connection cancelled by user")
             print(f"   Had {total_detections} total detections but not {required_consecutive} consecutive")
