@@ -9,17 +9,19 @@ required hardware:
 
 
 run:
-  # Click near bottom-left corner to hit Windows Start button
-  # Using coordinate-based clicking since EmguCV template matching is disabled
-  - microscope:
-      action: click
-      x: 20
-      y: 1060
+  # Template matching version (EmguCV now installed!)
+  # Place button screenshots in the buttons/ folder next to the C# server
+  # The server will find and click the button automatically
+  - microscope: Run1_start
   - wait: 2
   
-  # Original template matching version (requires EmguCV DLLs):
-  # - microscope: Run1_start
+  # Alternative: coordinate-based clicking (if template matching fails)
+  # - microscope:
+  #     action: click
+  #     x: 20
+  #     y: 1060
   
-  # Other coordinate examples:
-  # - microscope: {action: click, x: 450, y: 120}  # Center-top area
-  # - microscope: {action: click, x: 1900, y: 1060}  # Bottom-right corner
+  # Other examples:
+  # - microscope: Stop_button        # Click Stop button using template matching
+  # - microscope: Acquire_image      # Click Acquire button
+  # - microscope: {action: click, x: 450, y: 120}  # Direct coordinates

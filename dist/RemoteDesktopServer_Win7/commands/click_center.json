@@ -1,7 +1,0 @@
-{
-  "action": "click",
-  "x": 960,
-  "y": 540,
-  "button": "left",
-  "_comment": "Clicks at center of 1920x1080 screen"
-}

@@ -8,10 +8,10 @@ using Newtonsoft.Json;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using System.Drawing.Imaging;
-// EmguCV - TODO: Install via NuGet before enabling
-// using Emgu.CV;
-// using Emgu.CV.CvEnum;
-// using Emgu.CV.Structure;
+// EmguCV
+using Emgu.CV;
+using Emgu.CV.CvEnum;
+using Emgu.CV.Structure;
 
 namespace RemoteDesktop
 {
@@ -120,7 +120,7 @@ namespace RemoteDesktop
                         }
                     }
                     
-                    Thread.Sleep(100); // Check every 100ms
+                    Thread.Sleep(10); // Check every 10ms for fast response
                 }
                 catch (Exception ex)
                 {
@@ -145,6 +145,19 @@ namespace RemoteDesktop
 
             try
             {
+                // Delete command file immediately to prevent re-execution on restart
+                try
+                {
+                    if (File.Exists(commandFile))
+                    {
+                        File.Delete(commandFile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(string.Format("Warning: Could not delete command file: {0}", ex.Message));
+                }
+
                 switch (action)
                 {
                     case "click":
@@ -189,7 +202,6 @@ namespace RemoteDesktop
                         });
                         break;
 
-                    /* TODO: Enable after installing EmguCV NuGet package
                     case "find_and_click":
                         // Template matching to find and click button image
                         string imageName = cmd.image != null ? cmd.image.ToString() : "";
@@ -222,8 +234,8 @@ namespace RemoteDesktop
                         }
                         else
                         {
-                            string button = cmd.button != null ? cmd.button.ToString() : "left";
-                            MouseClick(buttonLocation.X, buttonLocation.Y, button);
+                            string btnClick = cmd.button != null ? cmd.button.ToString() : "left";
+                            MouseClick(buttonLocation.X, buttonLocation.Y, btnClick);
                             UpdateResponse(new Dictionary<string, object> 
                             { 
                                 { "status", "ok" },
@@ -231,11 +243,10 @@ namespace RemoteDesktop
                                 { "image", imageName },
                                 { "x", buttonLocation.X },
                                 { "y", buttonLocation.Y },
-                                { "button", button }
+                                { "button", btnClick }
                             });
                         }
                         break;
-                    */
 
                     case "shutdown":
                         isRunning = false;
@@ -268,7 +279,7 @@ namespace RemoteDesktop
         {
             // Move cursor to position
             Cursor.Position = new Point(x, y);
-            Thread.Sleep(50);
+            Thread.Sleep(10); // Minimal delay for cursor positioning
 
             // Simulate click
             if (button == "right")
@@ -386,11 +397,9 @@ namespace RemoteDesktop
         
         /// <summary>
         /// Find button on screen using template matching (EmguCV)
-        /// TODO: Enable after installing EmguCV NuGet package
         /// </summary>
         /// <param name="buttonPath">Path to button image template (PNG)</param>
         /// <returns>Center point of button, or Point.Empty if not found</returns>
-        /*
         private Point FindButton(string buttonPath)
         {
             try
@@ -446,7 +455,6 @@ namespace RemoteDesktop
                 return Point.Empty;
             }
         }
-        */
     }
 
     class Program

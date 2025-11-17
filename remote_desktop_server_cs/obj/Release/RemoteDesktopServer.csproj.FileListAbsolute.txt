@@ -11,3 +11,7 @@ C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\normnfkc.nlp
 C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\normnfkd.nlp
 C:\git\micropump_controller\remote_desktop_server_cs\obj\Release\RemoteDesktopServer.exe
 C:\git\micropump_controller\remote_desktop_server_cs\obj\Release\RemoteDesktopServer.pdb
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\Emgu.CV.UI.dll
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\Emgu.CV.World.dll
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\Emgu.CV.World.xml
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\Emgu.CV.UI.xml

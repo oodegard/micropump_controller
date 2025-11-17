@@ -47,7 +47,7 @@ class Microscope:
     
     def __init__(
         self,
-        shared_folder: str = r"\\BIPHUB\RemoteDesktopServer_Win7\status",
+        shared_folder: str = r"\\BIPHUB\micropump_controller",
         run_button_x: Optional[int] = None,
         run_button_y: Optional[int] = None,
         running_button_x: Optional[int] = None,
@@ -57,15 +57,16 @@ class Microscope:
         Initialize microscope controller.
         
         Args:
-            shared_folder: Path to shared folder for command.json/response.json
+            shared_folder: Path to shared folder containing status/ and buttons/ subfolders
             run_button_x: X coordinate of Run button (uses default if None)
             run_button_y: Y coordinate of Run button
             running_button_x: X coordinate when acquisition running
             running_button_y: Y coordinate when acquisition running
         """
         self.shared_folder = Path(shared_folder)
-        self.command_file = self.shared_folder / "command.json"
-        self.response_file = self.shared_folder / "response.json"
+        self.status_folder = self.shared_folder / "status"
+        self.command_file = self.status_folder / "command.json"
+        self.response_file = self.status_folder / "response.json"
         
         self.run_x = run_button_x or self.DEFAULT_RUN_X
         self.run_y = run_button_y or self.DEFAULT_RUN_Y
@@ -83,8 +84,8 @@ class Microscope:
             bool: True if shared folder exists and is writable
         """
         try:
-            if not self.shared_folder.exists():
-                self.last_error = f"Shared folder not accessible: {self.shared_folder}"
+            if not self.status_folder.exists():
+                self.last_error = f"Status folder not accessible: {self.status_folder}"
                 return False
             
             # Test write access by creating a test command
@@ -268,9 +269,9 @@ class Microscope:
         """
         if "not accessible" in self.last_error:
             return (
-                "1. Check network share is available: \\\\BIPHUB\\RemoteDesktopServer_Win7\n"
+                "1. Check network share is available: \\\\BIPHUB\\micropump_controller\n"
                 "2. Verify C# server is running on Windows 7 PC\n"
-                "3. Test share access: dir \\\\BIPHUB\\RemoteDesktopServer_Win7\\C_RemoteDesktop"
+                "3. Test share access: dir \\\\BIPHUB\\micropump_controller"
             )
         elif "Timeout" in self.last_error:
             return (
