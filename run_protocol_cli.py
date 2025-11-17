@@ -708,14 +708,12 @@ def main(argv: list[str] | None = None) -> int:
     microscope = None
     if microscope_enabled:
         from src.microscope import Microscope
-        # Initialize without auto-handshake - handshake happens on first acquire()
-        microscope = Microscope(auto_handshake=False)
+        microscope = Microscope()
         if not microscope.is_initialized:
             print(f"Microscope initialization failed: {microscope.last_error}")
             print("Suggested fix: Check Windows Sound settings")
             return 1
         print(f"[INFO] Microscope controller initialized (using system default audio)")
-        print(f"[INFO] Handshake will be established on first acquire() call")
 
     try:
         run_sequence(config, pump, valve, pump_profiles, microscope=microscope, dry_run=dry_run)
