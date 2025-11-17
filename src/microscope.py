@@ -36,6 +36,7 @@ class Microscope:
             output_device: Audio output device ID. If None, uses saved or default device.
             input_device: Audio input device ID. If None, uses saved or default device.
             auto_handshake: If True, automatically perform handshake during initialization.
+                          Note: Handshake uses PING/PONG commands, not separate frequencies.
         """
         self.is_initialized = False
         self.is_connected = False
@@ -43,15 +44,6 @@ class Microscope:
         self.output_device = output_device
         self.input_device = input_device
         self.sample_rate: int = 44100
-        
-        # Handshake frequencies (matching quick_setup.py)
-        self.calling_tone: int = 900   # Sender sends this
-        self.answer_tone: int = 1100   # Receiver responds with this
-        
-        # Detection parameters
-        self.detection_threshold: float = 15.0
-        self.background_noise: float = 0.0
-        self.signal_history: list = []
         
         # Load saved devices if not specified
         config = load_audio_config()
@@ -84,11 +76,11 @@ class Microscope:
         self.is_initialized = True
         logging.info(f"Microscope controller initialized (output: {self.output_device}, input: {self.input_device})")
         
-        # Perform handshake if requested
+        # Perform handshake if requested (using PING/PONG)
         if auto_handshake:
-            print("\nEstablishing connection with microscope...")
+            print("\nEstablishing connection with microscope using PING/PONG...")
             if not self.establish_handshake():
-                self.last_error = "Handshake failed"
+                self.last_error = "Handshake failed - no PONG received"
                 self.is_initialized = False
                 logging.error("Failed to establish handshake with microscope")
     
@@ -109,12 +101,12 @@ class Microscope:
             print(f"✗ Microscope not initialized: {self.last_error}")
             return False
         
-        # Establish handshake if not already connected
+        # Establish handshake if not already connected (using PING/PONG)
         if not self.is_connected:
-            print("📡 Establishing connection with microscope...")
+            print("📡 Establishing connection with microscope (PING/PONG)...")
             try:
                 if not self.establish_handshake():
-                    print("✗ Failed to establish connection with microscope")
+                    print("✗ Failed to establish connection - no PONG received")
                     return False
             except KeyboardInterrupt:
                 print("\n✗ Connection interrupted by user")
@@ -153,157 +145,66 @@ class Microscope:
             logging.error(self.last_error)
             return False
     
-    def detect_frequency(self, audio: np.ndarray, target_freq: float, 
-                        tolerance: float = 50.0) -> Tuple[bool, float]:
-        """
-        Detect if a specific frequency is present in audio.
-        Uses adaptive thresholding based on signal-to-noise ratio.
-        
-        Returns: (detected, peak_magnitude)
-        """
-        if len(audio) == 0 or np.all(audio == 0):
-            return False, 0.0
-        
-        try:
-            fft = np.fft.rfft(audio)
-            freqs = np.fft.rfftfreq(len(audio), 1 / self.sample_rate)
-            magnitude = np.abs(fft)
-            
-            # Find peak near target frequency
-            freq_mask = (freqs >= target_freq - tolerance) & (freqs <= target_freq + tolerance)
-            if not np.any(freq_mask):
-                return False, 0.0
-            
-            peak_mag = float(np.max(magnitude[freq_mask]))
-            
-            if np.isnan(peak_mag) or np.isinf(peak_mag):
-                return False, 0.0
-            
-            # Calculate background noise
-            noise_mask = ~freq_mask
-            if np.any(noise_mask):
-                background = float(np.median(magnitude[noise_mask]))
-                self.background_noise = 0.9 * self.background_noise + 0.1 * background
-            
-            # Adaptive threshold
-            adaptive_threshold = min(self.detection_threshold, max(10.0, 1.5 * self.background_noise))
-            
-            # Require SNR > 1.2
-            snr = peak_mag / (self.background_noise + 1e-6)
-            detected = (peak_mag > adaptive_threshold) and (snr > 1.2)
-            
-            self.signal_history.append({
-                'peak': peak_mag,
-                'threshold': adaptive_threshold,
-                'snr': snr,
-                'detected': detected
-            })
-            if len(self.signal_history) > 10:
-                self.signal_history.pop(0)
-            
-            return detected, peak_mag
-            
-        except Exception:
-            return False, 0.0
-    
-    def listen_for_tone(self, target_freq: float, duration: float = 1.5) -> bool:
-        """
-        Listen for a specific frequency.
-        Returns True if detected, False otherwise.
-        """
-        try:
-            actual_duration = max(duration, 1.5)
-            
-            recording = sd.rec(
-                int(actual_duration * self.sample_rate),
-                samplerate=self.sample_rate,
-                channels=1,
-                device=self.input_device,
-                dtype='float32'
-            )
-            sd.wait()
-            
-            audio = recording[:, 0]
-            
-            if len(audio) == 0:
-                return False
-            
-            detected, magnitude = self.detect_frequency(audio, target_freq)
-            return detected
-            
-        except Exception:
-            return False
-    
     def establish_handshake(self) -> bool:
         """
-        Sender (calling) side of handshake:
-        1. Send continuous 900 Hz calling tone
-        2. Listen for 1100 Hz answer tone from receiver
-        3. Once answer detected 3 times, STOP calling and confirm
+        Simple handshake using FSK modem PING/PONG commands.
+        Much simpler than frequency detection - just send PING, wait for PONG.
         
         Returns:
-            True if handshake successful, False otherwise
+            True if PONG received, False otherwise
         """
         print("\n" + "=" * 70)
-        print("ESTABLISHING CONNECTION - SENDER MODE")
+        print("ESTABLISHING CONNECTION - PING/PONG")
         print("=" * 70)
-        print("\nSending 900 Hz calling tone...")
-        print("Waiting for 1100 Hz answer from receiver...")
+        print("\nSending PING command...")
+        print("Waiting for PONG response...")
         print("(Press Ctrl+C to cancel)\n")
         
-        # Create calling tone
-        tone_duration = 0.5
-        t = np.linspace(0, tone_duration, int(self.sample_rate * tone_duration))
-        calling_signal = 0.4 * np.sin(2 * np.pi * self.calling_tone * t)
-        
-        # Add fade
-        fade_len = int(0.02 * self.sample_rate)
-        calling_signal[:fade_len] *= np.linspace(0, 1, fade_len)
-        calling_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
-        
-        consecutive_detections = 0
-        required_consecutive = 3
-        iteration = 0
+        max_attempts = 3
         
         try:
-            while True:
-                iteration += 1
+            for attempt in range(1, max_attempts + 1):
+                print(f"[Attempt {attempt}/{max_attempts}] Sending PING...")
                 
-                # Send calling tone
-                sd.play(calling_signal, self.sample_rate, device=self.output_device, blocking=True)
+                # Send PING command
+                audio = self.modem.encode_command(Command.PING)
+                sd.play(audio, self.modem.config.sample_rate, device=self.output_device)
+                sd.wait()
                 
-                # Brief delay
-                time.sleep(0.2)
+                print("  ✓ PING sent, listening for PONG...")
                 
-                # Listen for answer tone
-                print(f"[{iteration}] Listening for 1100 Hz answer tone...", end=' ', flush=True)
-                detected = self.listen_for_tone(self.answer_tone, duration=1.5)
+                # Listen for PONG (5 second timeout per attempt)
+                chunk_duration = 5.0
+                recording = sd.rec(
+                    int(chunk_duration * self.modem.config.sample_rate),
+                    samplerate=self.modem.config.sample_rate,
+                    channels=1,
+                    device=self.input_device,
+                    dtype='float32'
+                )
+                sd.wait()
                 
-                if detected:
-                    consecutive_detections += 1
-                    print(f"✓ DETECTED! ({consecutive_detections}/{required_consecutive})")
-                    
-                    if consecutive_detections >= required_consecutive:
-                        # STOP sending calling tone so receiver knows we're done
-                        sd.stop()
-                        print("\n✓ Answer confirmed! Stopping calling tone...")
-                        
-                        # Wait for receiver to detect we stopped
-                        time.sleep(2.0)
-                        
-                        print("🎉 CONNECTION ESTABLISHED!")
-                        self.is_connected = True
-                        return True
+                # Check for PONG
+                audio_data = recording[:, 0]
+                command = self.modem.decode_command(audio_data, debug=False)
+                
+                if command == Command.PONG:
+                    print("  ✓ PONG received!")
+                    print("\n🎉 CONNECTION ESTABLISHED!")
+                    self.is_connected = True
+                    return True
                 else:
-                    if len(self.signal_history) > 0:
-                        last_sig = self.signal_history[-1]
-                        print(f"not detected (peak: {last_sig['peak']:.0f}, threshold: {last_sig['threshold']:.0f})")
+                    if command:
+                        print(f"  ⚠ Received {command.name} instead of PONG")
                     else:
-                        print("not detected")
-                    
-                    if consecutive_detections > 0:
-                        print("  Lost answer tone... resetting")
-                    consecutive_detections = 0
+                        print("  ✗ No PONG received")
+                
+                if attempt < max_attempts:
+                    print("  Waiting 1 second before retry...")
+                    time.sleep(1.0)
+            
+            print(f"\n✗ No PONG received after {max_attempts} attempts")
+            return False
                     
         except KeyboardInterrupt:
             sd.stop()

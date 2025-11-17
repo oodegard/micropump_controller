@@ -450,7 +450,15 @@ def listen_and_respond(input_device: int, output_device: int, image_path: str) -
             # Try to decode
             command = modem.decode_command(audio_data, debug=debug_mode)
             
-            if command == Command.CAPTURE:
+            if command == Command.PING:
+                print("  ✓ PING received - sending PONG...")
+                # Respond with PONG
+                pong_audio = modem.encode_command(Command.PONG)
+                sd.play(pong_audio, modem.config.sample_rate, device=output_device)
+                sd.wait()
+                print("  ✓ PONG sent\n")
+                
+            elif command == Command.CAPTURE:
                 print("  ✓ CAPTURE command received!")
                 
                 # Find and click Acquire button
@@ -507,18 +515,15 @@ def main() -> None:
     
     print("\n")
     print("=" * 70)
-    print("MICROSCOPE LISTENER - BIDIRECTIONAL MODE")
-    print("Responds to handshake, listens for CAPTURE, clicks Acquire, sends DONE")
+    print("MICROSCOPE LISTENER - SIMPLE FSK MODE")
+    print("Listens for PING (responds with PONG), CAPTURE, sends DONE")
     print("=" * 70)
     
     # Find audio devices
     input_device, output_device = find_audio_devices()
     
-    # Establish handshake first
-    print("\nEstablishing connection with sender...")
-    if not establish_handshake_receiver(input_device, output_device):
-        print("\n✗ Failed to establish handshake. Exiting.")
-        return
+    # No separate handshake - just listen and respond to PING/CAPTURE
+    print("\n✓ Ready to receive commands (PING or CAPTURE)")
     
     # Start listening for commands
     listen_and_respond(input_device, output_device, BUTTON_IMAGE_PATH)
