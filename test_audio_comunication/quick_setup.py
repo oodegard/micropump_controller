@@ -188,7 +188,7 @@ class QuickSetup:
         print("\n" + "=" * 70)
         print("ESTABLISHING CONNECTION")
         print("=" * 70)
-        print("\nSending 1000 Hz handshake signal...")
+        print("\nSending continuous 1000 Hz handshake signal...")
         print("Listening for response from other computer...")
         print("(Press Ctrl+C to cancel)\n")
         
@@ -198,16 +198,17 @@ class QuickSetup:
         max_iterations = 60  # 60 seconds timeout
         last_status = None  # Track last printed status to avoid duplicates
         
+        # Start continuous tone in background (will loop automatically)
+        tone_duration = 10.0  # Long continuous tone
+        t = np.linspace(0, tone_duration, int(self.sample_rate * tone_duration))
+        continuous_signal = 0.3 * np.sin(2 * np.pi * self.handshake_freq * t)
+        
         for i in range(max_iterations):
-            # Send 1000 Hz tone (0.5 seconds)
-            # Play in background while we listen
-            t = np.linspace(0, 0.5, int(self.sample_rate * 0.5))
-            signal = 0.3 * np.sin(2 * np.pi * self.handshake_freq * t)
-            sd.play(signal, self.sample_rate, device=self.output_device, blocking=False)
+            # Start continuous tone playing in background
+            sd.play(continuous_signal, self.sample_rate, device=self.output_device, blocking=False)
             
-            # Listen for response (0.5 seconds)
-            time.sleep(0.1)  # Brief delay to avoid hearing our own sound
-            detected = self.listen_for_tone(self.handshake_freq, duration=0.5, show_status=False)
+            # Listen for response while sending
+            detected = self.listen_for_tone(self.handshake_freq, duration=1.0, show_status=False)
             
             if detected:
                 consecutive_detections += 1
@@ -217,6 +218,7 @@ class QuickSetup:
                     last_status = status
                 
                 if consecutive_detections >= required_consecutive:
+                    sd.stop()  # Stop the continuous tone
                     print("\n🎉 BIDIRECTIONAL CONNECTION ESTABLISHED!")
                     return True
             else:
@@ -227,9 +229,8 @@ class QuickSetup:
                     print("- listening...")
                     last_status = "- listening..."
                 consecutive_detections = 0
-            
-            time.sleep(0.5)  # Brief pause between iterations
         
+        sd.stop()  # Stop the continuous tone
         print("\n✗ Connection timeout - could not establish bidirectional link")
         return False
     
