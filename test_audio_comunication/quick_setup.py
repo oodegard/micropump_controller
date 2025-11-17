@@ -35,13 +35,16 @@ class QuickSetup:
         self.is_connected: bool = False
         self.role: Optional[Role] = None
         
-        # Frequencies for setup protocol
-        self.handshake_freq: int = 1000  # Both send this initially
-        self.sender_confirm_freq: int = 1200  # Sender confirms with this
-        self.receiver_confirm_freq: int = 1100  # Receiver confirms with this
+        # Standard modem handshake frequencies
+        self.calling_tone: int = 2100  # Sender sends this
+        self.answer_tone: int = 2225   # Receiver responds with this
         
-        # Adaptive detection parameters
-        self.detection_threshold: float = 100.0  # Initial threshold
+        # Confirmation frequencies (after handshake)
+        self.sender_confirm_freq: int = 1200
+        self.receiver_confirm_freq: int = 1100
+        
+        # Adaptive detection parameters - LOWERED for weak signals
+        self.detection_threshold: float = 30.0  # Lowered from 100.0
         self.background_noise: float = 0.0  # Background noise level
         self.signal_history: list = []  # Track signal quality over time
         
@@ -142,11 +145,11 @@ class QuickSetup:
             
             # Adaptive threshold: must be significantly above background noise
             # Use lower of: fixed threshold OR 3x background noise (whichever is more lenient)
-            adaptive_threshold = min(self.detection_threshold, max(50.0, 3.0 * self.background_noise))
+            adaptive_threshold = min(self.detection_threshold, max(20.0, 2.0 * self.background_noise))
             
-            # Also require signal-to-noise ratio > 2.0
+            # Require signal-to-noise ratio > 1.5 (lowered from 2.0 for weak signals)
             snr = peak_mag / (self.background_noise + 1e-6)
-            detected = (peak_mag > adaptive_threshold) and (snr > 2.0)
+            detected = (peak_mag > adaptive_threshold) and (snr > 1.5)
             
             # Track signal history for debugging
             self.signal_history.append({
@@ -213,92 +216,140 @@ class QuickSetup:
     
     def handshake_loop(self) -> bool:
         """
-        Continuously send 1000 Hz and listen for 1000 Hz from other computer.
-        Alternates between sending and listening to avoid self-detection.
+        Standard two-tone modem handshake protocol.
+        Sender sends calling tone (2100 Hz), Receiver responds with answer tone (2225 Hz).
         Once bidirectional connection established, return True.
         """
+        if self.role == Role.SENDER:
+            return self._handshake_as_sender()
+        else:
+            return self._handshake_as_receiver()
+    
+    def _handshake_as_sender(self) -> bool:
+        """
+        Sender (calling) side of handshake:
+        1. Send continuous 2100 Hz calling tone
+        2. Listen for 2225 Hz answer tone from receiver
+        3. Once detected, confirm and establish connection
+        """
         print("\n" + "=" * 70)
-        print("ESTABLISHING CONNECTION")
+        print("ESTABLISHING CONNECTION - SENDER MODE")
         print("=" * 70)
-        print("\nSending 1000 Hz handshake signal...")
-        print("Listening for response from other computer...")
+        print("\nSending 2100 Hz calling tone...")
+        print("Waiting for 2225 Hz answer from receiver...")
         print("(Press Ctrl+C to cancel)\n")
         
-        consecutive_detections = 0
-        required_consecutive = 3  # Need 3 consecutive detections to confirm
-        total_detections = 0  # Track total successful detections
-        
-        # Loop indefinitely until connection or user cancels
-        iteration = 0
-        last_status = None  # Track last printed status to avoid duplicates
-        
-        # Create tone signal
+        # Create calling tone
         tone_duration = 0.5
         t = np.linspace(0, tone_duration, int(self.sample_rate * tone_duration))
-        signal = 0.4 * np.sin(2 * np.pi * self.handshake_freq * t)
+        calling_signal = 0.4 * np.sin(2 * np.pi * self.calling_tone * t)
         
-        # Add smooth fade in/out to prevent clicks
+        # Add fade
         fade_len = int(0.02 * self.sample_rate)
-        signal[:fade_len] *= np.linspace(0, 1, fade_len)
-        signal[-fade_len:] *= np.linspace(1, 0, fade_len)
+        calling_signal[:fade_len] *= np.linspace(0, 1, fade_len)
+        calling_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
+        
+        consecutive_detections = 0
+        required_consecutive = 3
         
         try:
-            while True:  # Loop indefinitely until connection or Ctrl+C
-                iteration += 1
+            while True:
+                # Send calling tone
+                sd.play(calling_signal, self.sample_rate, device=self.output_device, blocking=True)
                 
-                # SEND phase - play tone
-                sd.play(signal, self.sample_rate, device=self.output_device, blocking=True)
+                # Brief delay
+                time.sleep(0.2)
                 
-                # Brief delay to let our own signal dissipate
-                time.sleep(0.3)
-                
-                # LISTEN phase - listen for response (our signal should be gone now)
-                detected = self.listen_for_tone(self.handshake_freq, duration=1.0, show_status=False)
+                # Listen for answer tone
+                detected = self.listen_for_tone(self.answer_tone, duration=1.0, show_status=False)
                 
                 if detected:
                     consecutive_detections += 1
-                    total_detections += 1
-                    
-                    # More informative status message
-                    status = f"✓ Response received! ({consecutive_detections}/{required_consecutive}) [total: {total_detections}]"
-                    if status != last_status:
-                        print(status)
-                        last_status = status
+                    print(f"✓ Answer tone detected! ({consecutive_detections}/{required_consecutive})")
                     
                     if consecutive_detections >= required_consecutive:
-                        sd.stop()  # Stop any ongoing playback
-                        time.sleep(0.3)  # Let it finish cleanly
-                        print("\n🎉 BIDIRECTIONAL CONNECTION ESTABLISHED!")
-                        print(f"   Signal quality: {len([h for h in self.signal_history if h['detected']])}/{len(self.signal_history)} detections")
+                        sd.stop()
+                        print("\n🎉 CONNECTION ESTABLISHED!")
                         return True
                 else:
-                    # Recovery mechanism - don't immediately reset if we had detections
                     if consecutive_detections > 0:
-                        # Show we're trying to recover
-                        recovery_msg = f"~ Connection weakened ({consecutive_detections}/{required_consecutive}), recovering..."
-                        if recovery_msg != last_status:
-                            print(recovery_msg)
-                            last_status = recovery_msg
-                        
-                        # Don't reset immediately - give it one more chance
-                        consecutive_detections = max(0, consecutive_detections - 1)
-                    elif total_detections > 0:
-                        # We've had some detections but not consecutive
-                        if last_status != "~ intermittent signal, waiting for stable connection...":
-                            print("~ intermittent signal, waiting for stable connection...")
-                            last_status = "~ intermittent signal, waiting for stable connection..."
-                    else:
-                        # No detections yet
-                        if last_status != "- listening...":
-                            print("- listening...")
-                            last_status = "- listening..."
+                        print("Lost answer tone... resetting")
+                    consecutive_detections = 0
+                    
+        except KeyboardInterrupt:
+            sd.stop()
+            print("\n✗ Connection cancelled by user")
+            raise
+    
+    def _handshake_as_receiver(self) -> bool:
+        """
+        Receiver (answering) side of handshake:
+        1. Listen for 2100 Hz calling tone from sender
+        2. Once detected, respond with continuous 2225 Hz answer tone
+        3. Confirm connection established
+        """
+        print("\n" + "=" * 70)
+        print("ESTABLISHING CONNECTION - RECEIVER MODE")
+        print("=" * 70)
+        print("\nListening for 2100 Hz calling tone from sender...")
+        print("(Press Ctrl+C to cancel)\n")
+        
+        # Phase 1: Listen for calling tone
+        calling_detected = False
+        
+        try:
+            print("- listening for calling tone...")
+            
+            while not calling_detected:
+                detected = self.listen_for_tone(self.calling_tone, duration=1.5, show_status=False)
                 
-                # Brief pause between iterations (not needed since listen_for_tone takes time)
+                if detected:
+                    print("✓ Calling tone detected!")
+                    calling_detected = True
+                    break
+                    
+                time.sleep(0.5)
+            
+            # Phase 2: Respond with answer tone
+            print("\nSending 2225 Hz answer tone...")
+            
+            # Create answer tone
+            tone_duration = 0.5
+            t = np.linspace(0, tone_duration, int(self.sample_rate * tone_duration))
+            answer_signal = 0.4 * np.sin(2 * np.pi * self.answer_tone * t)
+            
+            # Add fade
+            fade_len = int(0.02 * self.sample_rate)
+            answer_signal[:fade_len] *= np.linspace(0, 1, fade_len)
+            answer_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
+            
+            # Send answer tone repeatedly while also listening for calling tone
+            consecutive_calling = 0
+            required_consecutive = 3
+            
+            for _ in range(30):  # Try for 30 iterations
+                # Send answer tone
+                sd.play(answer_signal, self.sample_rate, device=self.output_device, blocking=True)
+                time.sleep(0.2)
+                
+                # Check if sender is still there
+                still_calling = self.listen_for_tone(self.calling_tone, duration=1.0, show_status=False)
+                
+                if still_calling:
+                    consecutive_calling += 1
+                    if consecutive_calling >= required_consecutive:
+                        sd.stop()
+                        print("\n🎉 CONNECTION ESTABLISHED!")
+                        return True
+                else:
+                    consecutive_calling = 0
+            
+            print("\n✗ Lost connection with sender")
+            return False
             
         except KeyboardInterrupt:
             sd.stop()
             print("\n✗ Connection cancelled by user")
-            print(f"   Had {total_detections} total detections but not {required_consecutive} consecutive")
             raise
     
     def ask_role(self) -> Optional[Role]:
@@ -408,9 +459,14 @@ class QuickSetup:
         print("QUICK AUDIO SETUP")
         print("=" * 70)
         print("\nAutomatic bidirectional audio communication setup")
-        print("Run this on BOTH computers simultaneously!\n")
+        print("Standard two-tone modem handshake protocol\n")
         
-        # Step 1: Auto-detect audio devices
+        # Step 1: Ask user to identify role FIRST
+        self.role = self.ask_role()
+        if self.role is None:
+            return False
+        
+        # Step 2: Auto-detect audio devices
         self.input_device = self.find_working_input_device()
         self.output_device = self.find_working_output_device()
         
@@ -424,20 +480,11 @@ class QuickSetup:
         
         print("\n✓ Audio devices configured")
         
-        # Step 2: Establish bidirectional connection with handshake
+        # Step 3: Establish bidirectional connection with two-tone handshake
         if not self.handshake_loop():
             return False
         
         self.is_connected = True
-        
-        # Step 3: Ask user to identify role
-        self.role = self.ask_role()
-        if self.role is None:
-            return False
-        
-        # Step 4: Confirm roles with frequency exchange
-        if not self.confirm_role():
-            return False
         
         # Success!
         print("\n" + "=" * 70)
