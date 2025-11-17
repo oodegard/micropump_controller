@@ -251,29 +251,41 @@ class QuickSetup:
         
         consecutive_detections = 0
         required_consecutive = 3
+        iteration = 0
+        last_status = None
         
         try:
             while True:
+                iteration += 1
+                
                 # Send calling tone
                 sd.play(calling_signal, self.sample_rate, device=self.output_device, blocking=True)
                 
                 # Brief delay
                 time.sleep(0.2)
                 
-                # Listen for answer tone
-                detected = self.listen_for_tone(self.answer_tone, duration=1.0, show_status=False)
+                # Listen for answer tone with debug output
+                print(f"[{iteration}] Listening for 2225 Hz answer tone...", end=' ', flush=True)
+                detected = self.listen_for_tone(self.answer_tone, duration=1.5, show_status=False)
                 
                 if detected:
                     consecutive_detections += 1
-                    print(f"✓ Answer tone detected! ({consecutive_detections}/{required_consecutive})")
+                    print(f"✓ DETECTED! ({consecutive_detections}/{required_consecutive})")
                     
                     if consecutive_detections >= required_consecutive:
                         sd.stop()
                         print("\n🎉 CONNECTION ESTABLISHED!")
                         return True
                 else:
+                    # Show what we got
+                    if len(self.signal_history) > 0:
+                        last_sig = self.signal_history[-1]
+                        print(f"not detected (peak: {last_sig['peak']:.0f}, threshold: {last_sig['threshold']:.0f})")
+                    else:
+                        print("not detected")
+                    
                     if consecutive_detections > 0:
-                        print("Lost answer tone... resetting")
+                        print("  Lost answer tone... resetting")
                     consecutive_detections = 0
                     
         except KeyboardInterrupt:
