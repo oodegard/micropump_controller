@@ -35,9 +35,9 @@ class QuickSetup:
         self.is_connected: bool = False
         self.role: Optional[Role] = None
         
-        # Standard modem handshake frequencies
-        self.calling_tone: int = 2100  # Sender sends this
-        self.answer_tone: int = 2225   # Receiver responds with this
+        # Standard modem handshake frequencies (adjusted for better transmission)
+        self.calling_tone: int = 900   # Sender sends this (lowered from 2100)
+        self.answer_tone: int = 1100   # Receiver responds with this (lowered from 2225)
         
         # Confirmation frequencies (after handshake)
         self.sender_confirm_freq: int = 1200
@@ -235,8 +235,8 @@ class QuickSetup:
         print("\n" + "=" * 70)
         print("ESTABLISHING CONNECTION - SENDER MODE")
         print("=" * 70)
-        print("\nSending 2100 Hz calling tone...")
-        print("Waiting for 2225 Hz answer from receiver...")
+        print("\nSending 900 Hz calling tone...")
+        print("Waiting for 1100 Hz answer from receiver...")
         print("(Press Ctrl+C to cancel)\n")
         
         # Create calling tone
@@ -265,7 +265,7 @@ class QuickSetup:
                 time.sleep(0.2)
                 
                 # Listen for answer tone with debug output
-                print(f"[{iteration}] Listening for 2225 Hz answer tone...", end=' ', flush=True)
+                print(f"[{iteration}] Listening for 1100 Hz answer tone...", end=' ', flush=True)
                 detected = self.listen_for_tone(self.answer_tone, duration=1.5, show_status=False)
                 
                 if detected:
@@ -303,7 +303,7 @@ class QuickSetup:
         print("\n" + "=" * 70)
         print("ESTABLISHING CONNECTION - RECEIVER MODE")
         print("=" * 70)
-        print("\nListening for 2100 Hz calling tone from sender...")
+        print("\nListening for 900 Hz calling tone from sender...")
         print("(Press Ctrl+C to cancel)\n")
         
         # Phase 1: Listen for calling tone
@@ -323,7 +323,7 @@ class QuickSetup:
                 time.sleep(0.5)
             
             # Phase 2: Respond with answer tone
-            print("\nSending 2225 Hz answer tone...")
+            print("\nSending 1100 Hz answer tone...")
             
             # Create answer tone
             tone_duration = 0.5
