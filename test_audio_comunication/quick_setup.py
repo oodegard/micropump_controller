@@ -14,6 +14,7 @@ import numpy as np
 import sounddevice as sd
 import time
 import sys
+import threading
 from typing import Optional, Tuple
 from enum import Enum
 
@@ -198,41 +199,60 @@ class QuickSetup:
         max_iterations = 60  # 60 seconds timeout
         last_status = None  # Track last printed status to avoid duplicates
         
-        # Start continuous tone in background (will loop automatically)
-        tone_duration = 10.0  # Long continuous tone
+        # Create continuous tone signal
+        tone_duration = 0.5  # Half second chunks, will loop
         t = np.linspace(0, tone_duration, int(self.sample_rate * tone_duration))
         continuous_signal = 0.3 * np.sin(2 * np.pi * self.handshake_freq * t)
         
-        for i in range(max_iterations):
-            # Start continuous tone playing in background
-            sd.play(continuous_signal, self.sample_rate, device=self.output_device, blocking=False)
-            
-            # Listen for response while sending
-            detected = self.listen_for_tone(self.handshake_freq, duration=1.0, show_status=False)
-            
-            if detected:
-                consecutive_detections += 1
-                status = f"✓ Response received! ({consecutive_detections}/{required_consecutive})"
-                if status != last_status:
-                    print(status)
-                    last_status = status
-                
-                if consecutive_detections >= required_consecutive:
-                    sd.stop()  # Stop the continuous tone
-                    print("\n🎉 BIDIRECTIONAL CONNECTION ESTABLISHED!")
-                    return True
-            else:
-                if consecutive_detections > 0:
-                    print("Lost connection... resetting")
-                    last_status = None
-                elif last_status != "- listening...":
-                    print("- listening...")
-                    last_status = "- listening..."
-                consecutive_detections = 0
+        # Flag to control playback thread
+        stop_playing = threading.Event()
         
-        sd.stop()  # Stop the continuous tone
-        print("\n✗ Connection timeout - could not establish bidirectional link")
-        return False
+        def play_continuous() -> None:
+            """Thread function to continuously play tone"""
+            while not stop_playing.is_set():
+                sd.play(continuous_signal, self.sample_rate, device=self.output_device)
+                sd.wait()
+        
+        # Start playback thread
+        playback_thread = threading.Thread(target=play_continuous, daemon=True)
+        playback_thread.start()
+        
+        try:
+            for i in range(max_iterations):
+                # Listen for response while tone is playing in background
+                detected = self.listen_for_tone(self.handshake_freq, duration=1.0, show_status=False)
+                
+                if detected:
+                    consecutive_detections += 1
+                    status = f"✓ Response received! ({consecutive_detections}/{required_consecutive})"
+                    if status != last_status:
+                        print(status)
+                        last_status = status
+                    
+                    if consecutive_detections >= required_consecutive:
+                        stop_playing.set()  # Stop the continuous tone
+                        sd.stop()
+                        time.sleep(0.2)  # Let it finish
+                        print("\n🎉 BIDIRECTIONAL CONNECTION ESTABLISHED!")
+                        return True
+                else:
+                    if consecutive_detections > 0:
+                        print("Lost connection... resetting")
+                        last_status = None
+                    elif last_status != "- listening...":
+                        print("- listening...")
+                        last_status = "- listening..."
+                    consecutive_detections = 0
+            
+            stop_playing.set()  # Stop the continuous tone
+            sd.stop()
+            print("\n✗ Connection timeout - could not establish bidirectional link")
+            return False
+            
+        except KeyboardInterrupt:
+            stop_playing.set()
+            sd.stop()
+            raise
     
     def ask_role(self) -> Optional[Role]:
         """
