@@ -15,6 +15,7 @@ dependencies = [
     "pyautogui>=0.9.54",
     "pyinstaller>=6.16.0",
     "pillow>=10.0.0",
+    "opencv-python>=4.8.0",
 ]
 
 [project.optional-dependencies]
