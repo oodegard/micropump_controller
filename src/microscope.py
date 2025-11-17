@@ -27,54 +27,29 @@ class Microscope:
     Automatically establishes handshake with receiver on initialization.
     """
     
-    def __init__(self, output_device: Optional[int] = None, input_device: Optional[int] = None,
-                 auto_handshake: bool = True):
+    def __init__(self, auto_handshake: bool = True):
         """
         Initialize microscope controller.
         
+        Uses system default audio devices (configured in Windows Sound settings).
+        If audio jack not connected, will use speakers/microphone - just like playing music.
+        
         Args:
-            output_device: Audio output device ID. If None, uses saved or default device.
-            input_device: Audio input device ID. If None, uses saved or default device.
             auto_handshake: If True, automatically perform handshake during initialization.
-                          Note: Handshake uses PING/PONG commands, not separate frequencies.
+                          Note: Handshake uses PING/PONG commands.
         """
         self.is_initialized = False
         self.is_connected = False
         self.last_error = ""
-        self.output_device = output_device
-        self.input_device = input_device
+        self.output_device = None  # None = use system default
+        self.input_device = None   # None = use system default
         self.sample_rate: int = 44100
-        
-        # Load saved devices if not specified
-        config = load_audio_config()
-        
-        if self.output_device is None:
-            self.output_device = config.get('output_device')
-            if self.output_device is None:
-                try:
-                    self.output_device = sd.default.device[1]
-                    save_audio_config(output_device=self.output_device)
-                except Exception as e:
-                    self.last_error = f"Failed to get default output device: {e}"
-                    logging.error(self.last_error)
-                    return
-        
-        if self.input_device is None:
-            self.input_device = config.get('input_device')
-            if self.input_device is None:
-                try:
-                    self.input_device = sd.default.device[0]
-                    save_audio_config(input_device=self.input_device)
-                except Exception as e:
-                    self.last_error = f"Failed to get default input device: {e}"
-                    logging.error(self.last_error)
-                    return
         
         # Initialize FSK modem
         self.modem = AudioModem(FSKConfig())
         
         self.is_initialized = True
-        logging.info(f"Microscope controller initialized (output: {self.output_device}, input: {self.input_device})")
+        logging.info("Microscope controller initialized (using system default audio devices)")
         
         # Perform handshake if requested (using PING/PONG)
         if auto_handshake:

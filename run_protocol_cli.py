@@ -712,9 +712,9 @@ def main(argv: list[str] | None = None) -> int:
         microscope = Microscope(auto_handshake=False)
         if not microscope.is_initialized:
             print(f"Microscope initialization failed: {microscope.last_error}")
-            print("Suggested fix: Check audio output device configuration")
+            print("Suggested fix: Check Windows Sound settings")
             return 1
-        print(f"[INFO] Microscope controller initialized (audio device {microscope.output_device})")
+        print(f"[INFO] Microscope controller initialized (using system default audio)")
         print(f"[INFO] Handshake will be established on first acquire() call")
 
     try:

@@ -41,57 +41,21 @@ BACKGROUND_NOISE = 0.0
 SIGNAL_HISTORY = []
 
 
-def find_audio_devices() -> Tuple[int, int]:
+def get_default_audio_devices() -> Tuple[None, None]:
     """
-    Find the correct audio input and output devices.
-    First tries saved config, then scans all devices.
+    Just use system default audio devices.
+    User controls routing via Windows Sound settings.
     
     Returns:
-        (input_device_id, output_device_id)
+        (None, None) to indicate use system defaults
     """
     print("=" * 70)
-    print("MICROSCOPE LISTENER - Audio Device Setup")
+    print("MICROSCOPE LISTENER - Using System Default Audio")
     print("=" * 70)
-    
-    # Try saved config first
-    config = load_audio_config()
-    saved_input = config.get('input_device')
-    saved_output = config.get('output_device')
-    
-    if saved_input is not None and saved_output is not None:
-        print(f"\n✓ Found saved devices:")
-        print(f"  Input: {saved_input}")
-        print(f"  Output: {saved_output}")
-        return saved_input, saved_output
-    
-    # Manual selection
-    devices = sd.query_devices()
-    print("\nAvailable audio devices:")
-    input_devices = []
-    output_devices = []
-    
-    for i, device in enumerate(devices):
-        in_channels = device['max_input_channels']
-        out_channels = device['max_output_channels']
-        if in_channels > 0:
-            print(f"  [{i}] {device['name']} (INPUT)")
-            input_devices.append(i)
-        if out_channels > 0:
-            print(f"  [{i}] {device['name']} (OUTPUT)")
-            output_devices.append(i)
-    
-    if not input_devices or not output_devices:
-        raise RuntimeError("Need both input and output audio devices!")
-    
-    print("\n" + "=" * 70)
-    print("DEVICE SELECTION")
-    print("=" * 70)
-    
-    input_id = int(input("Enter INPUT device number (for receiving signals): ").strip())
-    output_id = int(input("Enter OUTPUT device number (for sending signals): ").strip())
-    
-    save_audio_config(input_device=input_id, output_device=output_id)
-    return input_id, output_id
+    print("\n✓ Using Windows default audio devices")
+    print("  Configure audio routing in Windows Sound settings")
+    print("  (Just like playing music - uses speakers if jack not connected)\n")
+    return None, None
 
 
 def find_button_on_screen(image_path: str, confidence: float = 0.99) -> Optional[Tuple[int, int]]:
@@ -200,12 +164,12 @@ def wait_for_acquisition_complete(image_path: str, max_wait: float = 600.0,
     return False
 
 
-def send_done_signal(output_device: int, modem: AudioModem) -> bool:
+def send_done_signal(output_device: Optional[int], modem: AudioModem) -> bool:
     """
     Send DONE command back to controller.
     
     Args:
-        output_device: Audio output device ID
+        output_device: Audio output device ID (None = system default)
         modem: AudioModem instance
     
     Returns:
@@ -396,15 +360,15 @@ def establish_handshake_receiver(input_device: int, output_device: int,
         return False
 
 
-def listen_and_respond(input_device: int, output_device: int, image_path: str, confidence: float = 0.99) -> None:
+def listen_and_respond(input_device: Optional[int], output_device: Optional[int], image_path: str, confidence: float = 0.99) -> None:
     """
     Main listening loop - waits for CAPTURE, clicks button, monitors, sends DONE.
     
     Args:
-        input_device: Audio input device ID
-        output_device: Audio output device ID
+        input_device: Audio input device ID (None = system default)
+        output_device: Audio output device ID (None = system default)
         image_path: Path to button image for recognition
-        confidence: Image matching confidence threshold
+        confidence: Button image matching confidence (0.0 to 1.0)
     """
     # Verify button image exists
     if not Path(image_path).exists():
@@ -536,14 +500,14 @@ def main() -> None:
     print("Listens for PING (responds with PONG), CAPTURE, sends DONE")
     print("=" * 70)
     
-    # Find audio devices
-    input_device, output_device = find_audio_devices()
+    # Get default audio devices (None = system default)
+    input_device, output_device = get_default_audio_devices()
     
     # No separate handshake - just listen and respond to PING/CAPTURE
-    print("\n✓ Ready to receive commands (PING or CAPTURE)")
+    print("✓ Ready to receive commands (PING or CAPTURE)\n")
     
     # Start listening for commands
-    listen_and_respond(input_device, output_device, BUTTON_IMAGE_PATH, confidence=args.confidence)
+    listen_and_respond(input_device, output_device, BUTTON_IMAGE_PATH)
 
 
 if __name__ == "__main__":
