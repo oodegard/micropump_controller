@@ -228,9 +228,9 @@ class QuickSetup:
     def _handshake_as_sender(self) -> bool:
         """
         Sender (calling) side of handshake:
-        1. Send continuous 2100 Hz calling tone
-        2. Listen for 2225 Hz answer tone from receiver
-        3. Once detected, confirm and establish connection
+        1. Send continuous 900 Hz calling tone
+        2. Listen for 1100 Hz answer tone from receiver
+        3. Once answer detected 3 times, STOP calling and confirm
         """
         print("\n" + "=" * 70)
         print("ESTABLISHING CONNECTION - SENDER MODE")
@@ -252,7 +252,6 @@ class QuickSetup:
         consecutive_detections = 0
         required_consecutive = 3
         iteration = 0
-        last_status = None
         
         try:
             while True:
@@ -273,8 +272,14 @@ class QuickSetup:
                     print(f"✓ DETECTED! ({consecutive_detections}/{required_consecutive})")
                     
                     if consecutive_detections >= required_consecutive:
+                        # STOP sending calling tone so receiver knows we're done
                         sd.stop()
-                        print("\n🎉 CONNECTION ESTABLISHED!")
+                        print("\n✓ Answer confirmed! Stopping calling tone...")
+                        
+                        # Wait a moment to let receiver detect we stopped
+                        time.sleep(2.0)
+                        
+                        print("🎉 CONNECTION ESTABLISHED!")
                         return True
                 else:
                     # Show what we got
@@ -296,9 +301,9 @@ class QuickSetup:
     def _handshake_as_receiver(self) -> bool:
         """
         Receiver (answering) side of handshake:
-        1. Listen for 2100 Hz calling tone from sender
-        2. Once detected, respond with continuous 2225 Hz answer tone
-        3. Confirm connection established
+        1. Listen for 900 Hz calling tone from sender (need 3 consecutive)
+        2. Once confirmed, respond with continuous 1100 Hz answer tone
+        3. Keep sending until sender confirms (by stopping calling tone)
         """
         print("\n" + "=" * 70)
         print("ESTABLISHING CONNECTION - RECEIVER MODE")
@@ -306,24 +311,30 @@ class QuickSetup:
         print("\nListening for 900 Hz calling tone from sender...")
         print("(Press Ctrl+C to cancel)\n")
         
-        # Phase 1: Listen for calling tone
-        calling_detected = False
+        # Phase 1: Confirm calling tone (need multiple detections like sender does)
+        consecutive_calling = 0
+        required_calling_detections = 3
         
         try:
             print("- listening for calling tone...")
             
-            while not calling_detected:
+            while consecutive_calling < required_calling_detections:
                 detected = self.listen_for_tone(self.calling_tone, duration=1.5, show_status=False)
                 
                 if detected:
-                    print("✓ Calling tone detected!")
-                    calling_detected = True
-                    break
+                    consecutive_calling += 1
+                    print(f"✓ Calling tone detected! ({consecutive_calling}/{required_calling_detections})")
+                else:
+                    if consecutive_calling > 0:
+                        print(f"Lost calling tone, resetting ({consecutive_calling} -> 0)")
+                    consecutive_calling = 0
                     
-                time.sleep(0.5)
+                time.sleep(0.3)
             
-            # Phase 2: Respond with answer tone
-            print("\nSending 1100 Hz answer tone...")
+            print("\n✓ Calling tone confirmed! Starting answer phase...")
+            
+            # Phase 2: Respond with answer tone continuously
+            print("Sending 1100 Hz answer tone continuously...")
             
             # Create answer tone
             tone_duration = 0.5
@@ -335,36 +346,35 @@ class QuickSetup:
             answer_signal[:fade_len] *= np.linspace(0, 1, fade_len)
             answer_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
             
-            # Send answer tone repeatedly while also listening for calling tone
-            # Continue indefinitely until sender confirms
-            consecutive_calling = 0
-            required_consecutive = 5  # Need more confirmations
+            # Keep sending answer tone and checking if sender still calling
+            # Sender will stop calling once it detects our answer
             iteration = 0
+            no_calling_count = 0  # Count consecutive times we don't hear calling tone
             
-            while True:  # Keep sending until connection established
+            while True:
                 iteration += 1
                 
                 # Send answer tone
                 sd.play(answer_signal, self.sample_rate, device=self.output_device, blocking=True)
                 time.sleep(0.2)
                 
-                # Check if sender is still there
-                print(f"[{iteration}] Sending answer tone, checking for calling tone...", end=' ', flush=True)
+                # Check if sender is still calling (they stop when they detect our answer)
+                print(f"[{iteration}] Sending answer, checking for calling tone...", end=' ', flush=True)
                 still_calling = self.listen_for_tone(self.calling_tone, duration=1.0, show_status=False)
                 
-                if still_calling:
-                    consecutive_calling += 1
-                    print(f"✓ Calling tone still detected ({consecutive_calling}/{required_consecutive})")
-                    if consecutive_calling >= required_consecutive:
+                if not still_calling:
+                    # Sender stopped calling - means they detected our answer!
+                    no_calling_count += 1
+                    print(f"no calling tone (sender may have confirmed) [{no_calling_count}/3]")
+                    
+                    if no_calling_count >= 3:
                         sd.stop()
                         print("\n🎉 CONNECTION ESTABLISHED!")
+                        print("(Sender stopped calling tone - they detected our answer)")
                         return True
                 else:
-                    if consecutive_calling > 0:
-                        print("Lost calling tone")
-                    else:
-                        print("no calling tone")
-                    consecutive_calling = 0
+                    print("✓ still hearing calling tone (sender waiting for our answer)")
+                    no_calling_count = 0  # Reset if we hear calling again
             
         except KeyboardInterrupt:
             sd.stop()
