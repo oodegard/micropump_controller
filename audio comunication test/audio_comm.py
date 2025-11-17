@@ -32,8 +32,8 @@ COMMAND_TONES = {
 }
 
 # Detection thresholds
-DETECTION_THRESHOLD = 0.1  # Minimum signal strength to consider
-FREQUENCY_TOLERANCE = 50  # Hz tolerance for frequency matching
+DETECTION_THRESHOLD = 0.05  # Minimum signal strength to consider (lowered for better sensitivity)
+FREQUENCY_TOLERANCE = 100  # Hz tolerance for frequency matching (increased for cable transmission)
 
 
 @dataclass
@@ -116,24 +116,45 @@ class AudioListener:
         # Find peaks above threshold
         peaks_idx = signal.find_peaks(magnitude, height=DETECTION_THRESHOLD)[0]
         detected_freqs = freqs[peaks_idx]
+        detected_mags = magnitude[peaks_idx]
         
         # Print detected frequencies if any significant signal present
         if len(detected_freqs) > 0:
             # Get top frequencies by magnitude
-            top_peaks = sorted(zip(detected_freqs, magnitude[peaks_idx]), 
-                             key=lambda x: x[1], reverse=True)[:5]
+            top_peaks = sorted(zip(detected_freqs, detected_mags), 
+                             key=lambda x: x[1], reverse=True)[:8]
             freq_str = ", ".join([f"{freq:.1f}Hz ({mag:.3f})" for freq, mag in top_peaks])
             print(f"Detected frequencies: {freq_str}")
         
-        # Match against known command tones
-        for command, (freq1, freq2) in COMMAND_TONES.items():
-            freq1_detected = any(abs(f - freq1) < FREQUENCY_TOLERANCE for f in detected_freqs)
-            freq2_detected = any(abs(f - freq2) < FREQUENCY_TOLERANCE for f in detected_freqs)
-            
-            if freq1_detected and freq2_detected:
-                return command
+        # Match against known command tones with scoring
+        best_match = None
+        best_score = 0
         
-        return None
+        for command, (freq1, freq2) in COMMAND_TONES.items():
+            # Find closest matches to target frequencies
+            matches1 = [(f, m) for f, m in zip(detected_freqs, detected_mags) 
+                       if abs(f - freq1) < FREQUENCY_TOLERANCE]
+            matches2 = [(f, m) for f, m in zip(detected_freqs, detected_mags) 
+                       if abs(f - freq2) < FREQUENCY_TOLERANCE]
+            
+            if matches1 and matches2:
+                # Score based on magnitude of detected frequencies
+                score = max(m for f, m in matches1) + max(m for f, m in matches2)
+                
+                # Also consider frequency accuracy
+                best_f1 = min(matches1, key=lambda x: abs(x[0] - freq1))
+                best_f2 = min(matches2, key=lambda x: abs(x[0] - freq2))
+                freq_error = abs(best_f1[0] - freq1) + abs(best_f2[0] - freq2)
+                
+                # Penalize large frequency errors
+                score = score * (1 - freq_error / 400)
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = command
+                    print(f"  -> Matches {command}: {best_f1[0]:.1f}Hz≈{freq1}Hz, {best_f2[0]:.1f}Hz≈{freq2}Hz (score: {score:.3f})")
+        
+        return best_match
     
     def _audio_callback(self, indata, frames, time_info, status):
         """Process incoming audio data."""
@@ -200,14 +221,11 @@ def list_audio_devices():
 
 # Example usage functions
 def command_received_handler(command: str):
-    """Example callback for received commands."""
+    """
+    Example callback for received commands.
+    NOTE: For production use, implement your handler in listen.py instead.
+    """
     print(f">>> RECEIVED: {command}")
-    
-    # Auto-respond to RUN command
-    if command == 'RUN':
-        time.sleep(0.2)  # Small delay before responding
-        commander = AudioCommander()
-        commander.send_command('RUN_COMMAND_RECEIVED')
 
 
 if __name__ == "__main__":
