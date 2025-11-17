@@ -43,8 +43,8 @@ class QuickSetup:
         self.sender_confirm_freq: int = 1200
         self.receiver_confirm_freq: int = 1100
         
-        # Adaptive detection parameters - LOWERED for weak signals
-        self.detection_threshold: float = 30.0  # Lowered from 100.0
+        # Adaptive detection parameters - VERY LOW for weak signals
+        self.detection_threshold: float = 15.0  # Very low threshold
         self.background_noise: float = 0.0  # Background noise level
         self.signal_history: list = []  # Track signal quality over time
         
@@ -144,12 +144,12 @@ class QuickSetup:
                 self.background_noise = 0.9 * self.background_noise + 0.1 * background  # EMA
             
             # Adaptive threshold: must be significantly above background noise
-            # Use lower of: fixed threshold OR 3x background noise (whichever is more lenient)
-            adaptive_threshold = min(self.detection_threshold, max(20.0, 2.0 * self.background_noise))
+            # Use lower of: fixed threshold OR 2x background noise (whichever is more lenient)
+            adaptive_threshold = min(self.detection_threshold, max(10.0, 1.5 * self.background_noise))
             
-            # Require signal-to-noise ratio > 1.5 (lowered from 2.0 for weak signals)
+            # Require signal-to-noise ratio > 1.2 (very lenient for weak signals)
             snr = peak_mag / (self.background_noise + 1e-6)
-            detected = (peak_mag > adaptive_threshold) and (snr > 1.5)
+            detected = (peak_mag > adaptive_threshold) and (snr > 1.2)
             
             # Track signal history for debugging
             self.signal_history.append({
@@ -336,28 +336,35 @@ class QuickSetup:
             answer_signal[-fade_len:] *= np.linspace(1, 0, fade_len)
             
             # Send answer tone repeatedly while also listening for calling tone
+            # Continue indefinitely until sender confirms
             consecutive_calling = 0
-            required_consecutive = 3
+            required_consecutive = 5  # Need more confirmations
+            iteration = 0
             
-            for _ in range(30):  # Try for 30 iterations
+            while True:  # Keep sending until connection established
+                iteration += 1
+                
                 # Send answer tone
                 sd.play(answer_signal, self.sample_rate, device=self.output_device, blocking=True)
                 time.sleep(0.2)
                 
                 # Check if sender is still there
+                print(f"[{iteration}] Sending answer tone, checking for calling tone...", end=' ', flush=True)
                 still_calling = self.listen_for_tone(self.calling_tone, duration=1.0, show_status=False)
                 
                 if still_calling:
                     consecutive_calling += 1
+                    print(f"✓ Calling tone still detected ({consecutive_calling}/{required_consecutive})")
                     if consecutive_calling >= required_consecutive:
                         sd.stop()
                         print("\n🎉 CONNECTION ESTABLISHED!")
                         return True
                 else:
+                    if consecutive_calling > 0:
+                        print("Lost calling tone")
+                    else:
+                        print("no calling tone")
                     consecutive_calling = 0
-            
-            print("\n✗ Lost connection with sender")
-            return False
             
         except KeyboardInterrupt:
             sd.stop()
