@@ -708,12 +708,14 @@ def main(argv: list[str] | None = None) -> int:
     microscope = None
     if microscope_enabled:
         from src.microscope import Microscope
-        microscope = Microscope()
+        # Initialize without auto-handshake - handshake happens on first acquire()
+        microscope = Microscope(auto_handshake=False)
         if not microscope.is_initialized:
             print(f"Microscope initialization failed: {microscope.last_error}")
             print("Suggested fix: Check audio output device configuration")
             return 1
         print(f"[INFO] Microscope controller initialized (audio device {microscope.output_device})")
+        print(f"[INFO] Handshake will be established on first acquire() call")
 
     try:
         run_sequence(config, pump, valve, pump_profiles, microscope=microscope, dry_run=dry_run)
@@ -729,6 +731,13 @@ def main(argv: list[str] | None = None) -> int:
                 valve.off()
         except Exception:
             pass
+        try:
+            if microscope:
+                microscope.close()
+        except Exception:
+            pass
+        print("[INFO] Shutdown complete")
+        return 130  # Standard exit code for Ctrl+C
     finally:
         if pump:
             try:
@@ -738,6 +747,11 @@ def main(argv: list[str] | None = None) -> int:
         if valve:
             try:
                 valve.close()
+            except Exception:
+                pass
+        if microscope:
+            try:
+                microscope.close()
             except Exception:
                 pass
     print("Sequence complete.")

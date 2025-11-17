@@ -97,6 +97,7 @@ class Microscope:
         Trigger image acquisition on microscope and wait for completion.
         
         Sends CAPTURE command via audio, waits for DONE response from microscope.
+        Automatically establishes handshake if not already connected.
         
         Args:
             timeout: Maximum time to wait for acquisition completion (default: 5 minutes)
@@ -108,12 +109,19 @@ class Microscope:
             print(f"✗ Microscope not initialized: {self.last_error}")
             return False
         
+        # Establish handshake if not already connected
         if not self.is_connected:
-            print("✗ Not connected to microscope. Run establish_handshake() first.")
-            return False
+            print("📡 Establishing connection with microscope...")
+            try:
+                if not self.establish_handshake():
+                    print("✗ Failed to establish connection with microscope")
+                    return False
+            except KeyboardInterrupt:
+                print("\n✗ Connection interrupted by user")
+                raise
         
         try:
-            print("� Triggering microscope acquisition...")
+            print("🔊 Triggering microscope acquisition...")
             
             # Send CAPTURE command
             audio = self.modem.encode_command(Command.CAPTURE)
@@ -136,6 +144,9 @@ class Microscope:
                 logging.warning(f"No DONE signal received within {timeout}s")
                 return False
             
+        except KeyboardInterrupt:
+            print("\n✗ Acquisition interrupted by user")
+            raise
         except Exception as e:
             self.last_error = f"Acquisition failed: {e}"
             print(f"✗ {self.last_error}")
@@ -297,7 +308,7 @@ class Microscope:
         except KeyboardInterrupt:
             sd.stop()
             print("\n✗ Connection cancelled by user")
-            return False
+            raise  # Re-raise to allow caller to handle
         except Exception as e:
             sd.stop()
             print(f"\n✗ Handshake error: {e}")
