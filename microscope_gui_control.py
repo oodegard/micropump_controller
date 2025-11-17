@@ -9,6 +9,7 @@ This script listens for audio commands and controls the microscope GUI:
 The button image (run.png) should be placed in the same directory as this script.
 """
 
+
 import sys
 import os
 import time
