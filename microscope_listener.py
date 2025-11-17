@@ -94,7 +94,7 @@ def find_audio_devices() -> Tuple[int, int]:
     return input_id, output_id
 
 
-def find_button_on_screen(image_path: str, confidence: float = 0.8) -> Optional[Tuple[int, int]]:
+def find_button_on_screen(image_path: str, confidence: float = 0.99) -> Optional[Tuple[int, int]]:
     """
     Find the Acquire button on screen using image recognition.
     
@@ -105,9 +105,17 @@ def find_button_on_screen(image_path: str, confidence: float = 0.8) -> Optional[
     Returns:
         (x, y) center coordinates of button, or None if not found
     """
-    print(f"\n🔍 Looking for button using image: {image_path}")
+    print(f"\n🔍 Looking for button using image: {image_path} (confidence >= {confidence})")
     
     try:
+        # Try to find all matches to show similarity scores
+        try:
+            all_locations = list(pyautogui.locateAllOnScreen(image_path, confidence=0.1))
+            if all_locations:
+                print(f"  ℹ Found {len(all_locations)} potential matches (confidence >= 0.1)")
+        except Exception:
+            pass
+        
         location = pyautogui.locateOnScreen(image_path, confidence=confidence)
         if location:
             # Get center of matched region
@@ -116,14 +124,15 @@ def find_button_on_screen(image_path: str, confidence: float = 0.8) -> Optional[
             print(f"✓ Button found at ({center_x}, {center_y})")
             return (center_x, center_y)
         else:
-            print(f"✗ Button image not found on screen")
+            print(f"✗ Button image not found on screen with confidence >= {confidence}")
+            print(f"  ℹ Try lowering confidence value if needed")
             return None
     except Exception as e:
         print(f"✗ Error finding button: {e}")
         return None
 
 
-def is_button_visible(image_path: str, confidence: float = 0.8) -> bool:
+def is_button_visible(image_path: str, confidence: float = 0.99) -> bool:
     """
     Check if button is visible on screen (acquisition complete).
     
@@ -142,7 +151,7 @@ def is_button_visible(image_path: str, confidence: float = 0.8) -> bool:
 
 
 def wait_for_acquisition_complete(image_path: str, max_wait: float = 600.0, 
-                                   confidence: float = 0.8) -> bool:
+                                   confidence: float = 0.99) -> bool:
     """
     Monitor button visibility until acquisition completes.
     
@@ -161,9 +170,10 @@ def wait_for_acquisition_complete(image_path: str, max_wait: float = 600.0,
     time.sleep(1.0)
     
     # Check if button disappeared (acquisition started)
-    print("  Checking if acquisition started...")
+    print(f"  Checking if acquisition started (confidence >= {confidence})...")
     if is_button_visible(image_path, confidence):
         print("  ⚠ Button still visible - acquisition may not have started")
+        print("     (This could mean processing is instant or button doesn't change)")
     else:
         print("  ✓ Button disappeared (acquisition running)")
     
@@ -180,13 +190,13 @@ def wait_for_acquisition_complete(image_path: str, max_wait: float = 600.0,
             print(f"  ✓ Button reappeared after {elapsed:.1f}s ({check_count} checks)")
             return True
         
-        # Check every 2 seconds
+        # Progress updates every 10 checks
         if check_count % 10 == 0:
-            print(f"  ... still waiting ({elapsed:.0f}s elapsed)")
+            print(f"  ... still waiting ({elapsed:.0f}s elapsed, check #{check_count})")
         
         time.sleep(2.0)
     
-    print(f"  ✗ Timeout after {max_wait}s")
+    print(f"  ✗ Timeout after {max_wait}s ({check_count} checks)")
     return False
 
 
@@ -386,7 +396,7 @@ def establish_handshake_receiver(input_device: int, output_device: int,
         return False
 
 
-def listen_and_respond(input_device: int, output_device: int, image_path: str) -> None:
+def listen_and_respond(input_device: int, output_device: int, image_path: str, confidence: float = 0.99) -> None:
     """
     Main listening loop - waits for CAPTURE, clicks button, monitors, sends DONE.
     
@@ -394,6 +404,7 @@ def listen_and_respond(input_device: int, output_device: int, image_path: str) -
         input_device: Audio input device ID
         output_device: Audio output device ID
         image_path: Path to button image for recognition
+        confidence: Image matching confidence threshold
     """
     # Verify button image exists
     if not Path(image_path).exists():
@@ -402,6 +413,7 @@ def listen_and_respond(input_device: int, output_device: int, image_path: str) -
         return
     
     print(f"\nUsing button image: {image_path}")
+    print(f"Image matching confidence: {confidence}")
     
     # Initialize modem
     modem = AudioModem(FSKConfig())
@@ -413,6 +425,7 @@ def listen_and_respond(input_device: int, output_device: int, image_path: str) -
     print(f"\nListening on device {input_device}")
     print(f"Will send DONE on device {output_device}")
     print(f"Button image: {image_path}")
+    print(f"Confidence threshold: {confidence}")
     print("\nPress Ctrl+C to stop\n")
     
     chunk_duration = 5.0  # Record in 5-second chunks
@@ -455,9 +468,10 @@ def listen_and_respond(input_device: int, output_device: int, image_path: str) -
                 
                 # Find and click Acquire button
                 print("  🖱️  Finding and clicking Acquire button...")
-                button_pos = find_button_on_screen(image_path)
+                button_pos = find_button_on_screen(image_path, confidence=confidence)
                 if not button_pos:
                     print("  ✗ Could not find button on screen!")
+                    print("  ℹ Try lowering confidence if button exists but not detected")
                     continue
                 
                 pyautogui.click(button_pos[0], button_pos[1])
@@ -465,7 +479,7 @@ def listen_and_respond(input_device: int, output_device: int, image_path: str) -
                 
                 # Wait for acquisition to complete
                 print("  ⏳ Monitoring acquisition...")
-                if wait_for_acquisition_complete(image_path):
+                if wait_for_acquisition_complete(image_path, confidence=confidence):
                     print("  ✓ Acquisition complete!")
                     
                     # Send DONE signal
@@ -495,6 +509,8 @@ def main() -> None:
     )
     parser.add_argument('--button-image', type=str, 
                        help=f'Path to button image file (default: {DEFAULT_BUTTON_IMAGE})')
+    parser.add_argument('--confidence', type=float, default=0.99,
+                       help='Image matching confidence threshold 0.0-1.0 (default: 0.99)')
     args = parser.parse_args()
     
     # Set button image path
@@ -504,6 +520,7 @@ def main() -> None:
         BUTTON_IMAGE_PATH = DEFAULT_BUTTON_IMAGE
     
     print(f"Button image: {BUTTON_IMAGE_PATH}")
+    print(f"Confidence threshold: {args.confidence}")
     
     print("\n")
     print("=" * 70)
@@ -521,7 +538,7 @@ def main() -> None:
         return
     
     # Start listening for commands
-    listen_and_respond(input_device, output_device, BUTTON_IMAGE_PATH)
+    listen_and_respond(input_device, output_device, BUTTON_IMAGE_PATH, confidence=args.confidence)
 
 
 if __name__ == "__main__":
