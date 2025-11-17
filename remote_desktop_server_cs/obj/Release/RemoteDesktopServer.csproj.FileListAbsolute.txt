@@ -1,0 +1,13 @@
+C:\git\micropump_controller\remote_desktop_server_cs\obj\Release\RemoteDesktopServer.csprojResolveAssemblyReference.cache
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\RemoteDesktopServer.exe
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\RemoteDesktopServer.pdb
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\mscorlib.dll
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\Newtonsoft.Json.dll
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\Newtonsoft.Json.xml
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\normidna.nlp
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\normnfc.nlp
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\normnfd.nlp
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\normnfkc.nlp
+C:\git\micropump_controller\remote_desktop_server_cs\bin\Release\normnfkd.nlp
+C:\git\micropump_controller\remote_desktop_server_cs\obj\Release\RemoteDesktopServer.exe
+C:\git\micropump_controller\remote_desktop_server_cs\obj\Release\RemoteDesktopServer.pdb

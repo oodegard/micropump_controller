@@ -41,13 +41,13 @@ run:
 
   - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
 
-  - duration: 40         # Run the pump for X seconds
+  - wait: 40         # Run the pump for X seconds
     commands:
       # During the X seconds, repeat the following commands:
       - action: valve_on
-        duration: 5       # Open the valve for 5 seconds
+        wait: 5       # Open the valve for 5 seconds
       - action: valve_off
-        duration: 5       # Close the valve for 5 seconds
+        wait: 5       # Close the valve for 5 seconds
       # The valve will switch on and off every 5 seconds during the pump run
 
   - pump_off: 0           # Turn off the pump (the value '0' is ignored)
@@ -58,5 +58,5 @@ run:
 #
 # To customize:
 # - Change the 'voltage' or 'freq' values in 'pump settings' to change the liquid flow rate.
-# - Change the 'duration' values for pump or valve steps.
+# - Change the 'wait' values for pump or valve steps.
 # - Add more steps to the 'run' sequence as needed.

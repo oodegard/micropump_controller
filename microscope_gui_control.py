@@ -1,25 +1,27 @@
 """
-Microscope GUI control via audio commands.
+Microscope GUI control via audio or ethernet commands.
 
-This script listens for audio commands and controls the microscope GUI:
+This script listens for commands and controls the microscope GUI:
 - When RUN is received, it finds and clicks the run button, then sends acknowledgments
 - Sends RUN_COMMAND_RECEIVED after button click
 - Sends RUN_DONE when complete
 
 The button image (run.png) should be placed in the same directory as this script.
+
+Usage:
+    python microscope_gui_control.py [--mode audio|ethernet]
 """
 
 import sys
 import os
 import time
 import pyautogui
+import argparse
 
 # Add src folder to path
 _SRC_DIR = os.path.join(os.path.dirname(__file__), "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
-
-from microscope import Microscope
 
 # Configuration
 BUTTON_IMAGE = "run.png"  # Path to the button image to find and click
@@ -108,8 +110,22 @@ def create_command_handler(microscope: Microscope):
 
 
 def main():
-    print("Microscope GUI Control - Audio Command Listener")
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Microscope GUI Control')
+    parser.add_argument('--mode', choices=['audio', 'ethernet'], default='audio',
+                       help='Communication mode: audio (default) or ethernet')
+    args = parser.parse_args()
+    
+    print("Microscope GUI Control - Command Listener")
     print("=" * 60)
+    print(f"Mode: {args.mode.upper()}")
+    print()
+    
+    # Import appropriate microscope class based on mode
+    if args.mode == 'ethernet':
+        from microscope_ethernet import Microscope
+    else:
+        from microscope_audio import Microscope
     
     # Check if button image exists
     button_path = os.path.join(os.path.dirname(__file__), BUTTON_IMAGE)
@@ -122,7 +138,11 @@ def main():
     
     # Initialize microscope controller
     microscope = Microscope()
-    microscope.list_audio_devices()
+    
+    if not microscope.is_initialized:
+        print(f"✗ Microscope initialization failed: {microscope.get_error_details()}")
+        print(f"Suggested fix: {microscope.get_suggested_fix()}")
+        return 1
     
     print("\nStarting listener...")
     print("This script will:")
@@ -146,7 +166,9 @@ def main():
         print("\n\nStopping listener...")
         microscope.stop_listening()
         print("Listener stopped.")
+    
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

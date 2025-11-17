@@ -1,0 +1,4 @@
+{
+  "action": "shutdown",
+  "_comment": "Gracefully stops the remote desktop server"
+}

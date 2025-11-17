@@ -1,0 +1,17 @@
+name: pump-ctrl
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pyserial
+  - numpy
+  - pip
+  - pip:
+    - python-dotenv
+    - pyyaml
+    - usbx
+    - pyusb
+    - sounddevice
+  # Optional Windows-specific packages (only install if on Windows)
+  # - pywin32  # For Windows registry access

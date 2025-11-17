@@ -1,0 +1,7 @@
+{
+  "action": "click",
+  "x": 500,
+  "y": 300,
+  "button": "right",
+  "_comment": "Right-click opens context menu at this position"
+}

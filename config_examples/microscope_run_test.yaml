@@ -1,0 +1,25 @@
+# Microscope Button Click Test
+# Press the Run1_start.png button on the microscope software
+# The button name in YAML matches the PNG filename in buttons/ folder
+
+required hardware:
+  pump: false
+  valve: false
+  microscope: true
+
+
+run:
+  # Click near bottom-left corner to hit Windows Start button
+  # Using coordinate-based clicking since EmguCV template matching is disabled
+  - microscope:
+      action: click
+      x: 20
+      y: 1060
+  - wait: 2
+  
+  # Original template matching version (requires EmguCV DLLs):
+  # - microscope: Run1_start
+  
+  # Other coordinate examples:
+  # - microscope: {action: click, x: 450, y: 120}  # Center-top area
+  # - microscope: {action: click, x: 1900, y: 1060}  # Bottom-right corner

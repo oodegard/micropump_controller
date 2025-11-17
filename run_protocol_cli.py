@@ -36,7 +36,7 @@ commands:
         # Original style (profile application + start). Now simplified to a mere start
         # because initial configuration is applied during controller init.
         - pump_on: profile name
-        - duration: 5
+        - wait: 5
         - pump_off: 0
 
         # New granular pump commands (can be mixed):
@@ -55,15 +55,15 @@ commands:
         - valve_pulse: 150         # pulse N ms (pump must support; Arduino handles it)
 
         # Mixed timed block (unchanged semantics):
-        - duration: 20
+        - wait: 20
             commands:
                 - action: valve_on
-                    duration: 2
+                    wait: 2
                 - action: valve_off
-                    duration: 2
+                    wait: 2
 
         # Simple wait:
-        - duration: 10
+        - wait: 10
 """
 
 from __future__ import annotations
@@ -462,8 +462,8 @@ def run_sequence(
                 print(f"[WARN] Failed to pulse valve: {e}")
             continue
         # Timed command block
-        if "duration" in step and "commands" in step:
-            total = float(step.get("duration", 0))
+        if ("wait" in step or "duration" in step) and "commands" in step:
+            total = float(step.get("wait", step.get("duration", 0)))
             commands: List[dict] = step.get("commands", [])
             print(f"[BLOCK] {total}s repeating {len(commands)} commands")
             block_start = time.time()
@@ -474,7 +474,7 @@ def run_sequence(
                     if remaining <= 0:
                         break
                     action = cmd.get("action")
-                    segment = float(cmd.get("duration", 0))
+                    segment = float(cmd.get("wait", cmd.get("duration", 0)))
                     block_count += 1
                     print(f"    [BLOCK STEP {block_count}] {action} for {segment}s (remaining: {remaining:.1f}s)")
                     if action == "valve_on":
@@ -494,8 +494,8 @@ def run_sequence(
             print(f"[BLOCK] Completed after {time.time() - block_start:.1f}s.")
             continue
         # Simple wait
-        if list(step.keys()) == ["duration"]:
-            wait_s = float(step["duration"]) or 0.0
+        if list(step.keys()) == ["wait"] or list(step.keys()) == ["duration"]:
+            wait_s = float(step.get("wait", step.get("duration", 0))) or 0.0
             print(f"[WAIT] {wait_s}s")
             interruptible_sleep(wait_s)
             continue
@@ -627,13 +627,36 @@ def run_sequence(
                 continue
             
             action = step["microscope"]
-            if action == "run":
-                print(f"[MICROSCOPE] Triggering run command...")
+            if action in ("run", "start"):
+                print(f"[MICROSCOPE] Clicking Run button...")
                 success = microscope.run()
-                if not success:
-                    print(f"[MICROSCOPE] ✗ Command failed")
+                if success:
+                    print(f"[MICROSCOPE] ✓ Run command sent")
+                else:
+                    print(f"[MICROSCOPE] ✗ Command failed: {microscope.get_error_details()}")
+            elif action == "wait_done":
+                print(f"[MICROSCOPE] Waiting for acquisition to complete...")
+                timeout = step.get("wait", step.get("duration", 300.0))
+                success = microscope.wait_done(timeout=timeout)
+                if success:
+                    print(f"[MICROSCOPE] ✓ Acquisition finished")
+                else:
+                    print(f"[MICROSCOPE] ✗ Timeout or error")
+            elif action == "screenshot":
+                print(f"[MICROSCOPE] Capturing screenshot...")
+                success = microscope.take_screenshot()
+                if success:
+                    print(f"[MICROSCOPE] ✓ Screenshot saved to shared folder")
+                else:
+                    print(f"[MICROSCOPE] ✗ Screenshot failed")
             else:
-                print(f"[WARN] Unknown microscope action: {action}")
+                # Treat any other value as a button name to click
+                print(f"[MICROSCOPE] Finding and clicking button: {action}")
+                success = microscope.run(image_path=action)
+                if success:
+                    print(f"[MICROSCOPE] ✓ Button '{action}' clicked")
+                else:
+                    print(f"[MICROSCOPE] ✗ Button '{action}' not found or click failed: {microscope.get_error_details()}")
             continue
         
         # Legacy: Microscope acquire command (alias for microscope: run)
@@ -723,13 +746,23 @@ def main(argv: list[str] | None = None) -> int:
 
     microscope = None
     if microscope_enabled:
-        from src.microscope import Microscope
-        microscope = Microscope()
-        if not microscope.is_initialized:
-            print(f"Microscope initialization failed: {microscope.last_error}")
-            print("Suggested fix: Check Windows Sound settings")
-            return 1
-        print(f"[INFO] Microscope controller initialized (using system default audio)")
+        # File-based remote desktop via C# server on Windows 7
+        if dry_run:
+            from src.microscope import MockMicroscope
+            print(f"[INFO] Using MOCK microscope (dry-run mode)")
+            microscope = MockMicroscope()
+        else:
+            from src.microscope import Microscope
+            print(f"[INFO] Initializing microscope remote desktop controller...")
+            
+            microscope = Microscope()
+            if not microscope.initialize():
+                print(f"[WARN] Microscope initialization failed:")
+                print(f"       {microscope.get_error_details()}")
+                print(f"       Suggested fix: {microscope.get_suggested_fix()}")
+                # Don't exit - allow protocol to run and retry connection later
+            else:
+                print(f"[INFO] Microscope controller connected successfully")
 
     try:
         run_sequence(config, pump, valve, pump_profiles, microscope=microscope, dry_run=dry_run)

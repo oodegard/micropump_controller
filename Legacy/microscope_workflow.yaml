@@ -1,0 +1,28 @@
+# Example workflow with microscope integration
+# This demonstrates bidirectional communication with the microscope
+
+# Required hardware
+hardware:
+  pump: true
+  valve: false
+  microscope: true  # Enable microscope control
+
+# Sequence of steps
+sequence:
+  - name: "Initialize pump"
+    pump_freq: 120
+    pump_voltage: 150
+    pump_on: true
+    wait: 2
+    
+  - name: "Take first microscope image"
+    microscope_acquire: true  # Sends CAPTURE, waits for DONE
+    
+  - name: "Wait between images"
+    wait: 5
+    
+  - name: "Take second microscope image"
+    microscope_acquire: true
+    
+  - name: "Stop pump"
+    pump_on: false

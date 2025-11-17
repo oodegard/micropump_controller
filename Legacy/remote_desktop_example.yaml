@@ -1,0 +1,63 @@
+# Example protocol using remote desktop microscope control.
+#
+# This demonstrates the new default microscope interface using ethernet-based
+# remote desktop control. No audio cables needed!
+#
+# Hardware Setup:
+# 1. Connect controller PC and microscope PC via ethernet cable (direct connection)
+# 2. On microscope PC: python remote_desktop_server.py
+# 3. On controller PC: uv run python run_protocol_cli.py config_examples/remote_desktop_example.yaml
+#
+# The microscope controller will:
+# - Auto-discover the server via UDP broadcast
+# - Send commands over TCP
+# - Find and click the "run.png" button on the remote screen
+
+# Pump configuration profiles
+pump settings:
+  low_flow:
+    waveform: RECT
+    voltage: 80
+    freq: 50
+  
+  high_flow:
+    waveform: RECT
+    voltage: 120
+    freq: 100
+
+# Hardware requirements
+required hardware:
+  pump: true
+  valve: true
+  microscope: true  # Enables remote desktop microscope control
+
+# Protocol sequence
+run:
+  # Start with low flow
+  - pump_on: low_flow
+  - wait: 2
+  
+  # Open valve for sample introduction
+  - valve_on: 0
+  - wait: 5
+  - valve_off: 0
+  
+  # Switch to high flow for washing
+  - pump_on: high_flow
+  - wait: 3
+  
+  # Stop pump before imaging
+  - pump_off: 0
+  - wait: 1
+  
+  # Trigger microscope acquisition via remote desktop
+  # This finds and clicks the "run.png" button on the microscope PC
+  - microscope: run
+  
+  # Wait for acquisition to complete
+  - wait: 10
+  
+  # Resume flow
+  - pump_on: low_flow
+  - wait: 5
+  - pump_off: 0

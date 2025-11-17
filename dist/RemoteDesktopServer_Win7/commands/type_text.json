@@ -1,0 +1,5 @@
+{
+  "action": "type",
+  "text": "experiment_001",
+  "_comment": "Types this text at current cursor position"
+}

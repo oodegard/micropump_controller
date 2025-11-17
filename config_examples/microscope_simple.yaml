@@ -1,0 +1,38 @@
+# Microscope Workflow Example
+# This demonstrates remote control of the Windows 7 microscope PC
+# while running pump operations on the controller PC.
+
+# Before running:
+# 1. Find the Run button coordinates on your microscope software
+# 2. Take a screenshot and measure the x,y position
+# 3. Update DEFAULT_RUN_X and DEFAULT_RUN_Y in src/microscope.py
+# 4. Make sure C# RemoteDesktopServer.exe is running on Windows 7 PC
+
+# Pump profiles
+pump settings:
+  medium_flow:
+    waveform: RECT
+    voltage: 180
+    freq: 120
+
+required hardware:
+  pump: true
+  valve: false
+  microscope: true
+
+run:
+  # Start microscope acquisition
+  - microscope: start
+  - wait: 2
+    
+  # Run pump during microscope capture
+  - pump_on: medium_flow
+  - wait: 30
+    
+  # Wait for microscope to finish
+  - microscope: wait_done
+  - wait: 300  # Max 5 minutes
+    
+  # Optional: Take screenshot to verify
+  - microscope: screenshot
+  - wait: 1

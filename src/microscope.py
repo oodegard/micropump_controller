@@ -1,273 +1,328 @@
 """
-Microscope controller that sends and receives audio commands for PC-to-PC communication.
+Microscope Remote Desktop Control - File-based communication with C# server.
 
-This module provides a unified Microscope class that can:
-- Send RUN commands via audio (commander mode) for run_protocol_cli.py
-- Receive commands via audio (listener mode) for microscope_gui_control.py
+This module provides microscope control via file-based communication with the
+Windows 7 C# remote desktop server. Commands are sent via JSON files in a shared folder.
 
-The system uses DTMF-like tone sequences for reliable communication over audio cables.
+Usage in YAML config:
+    microscope:
+        start: true      # Click the Run button to start acquisition
+        
+Example YAML:
+    steps:
+      - microscope: start
+        duration: 2      # Wait 2 seconds for it to start
+      
+      - pump_on: high_flow
+        duration: 30
+      
+      - microscope: wait_done  # Wait until acquisition finishes
+        duration: 300   # Max wait time
 """
 
-import numpy as np
-import sounddevice as sd
-from scipy import signal
-from typing import Optional, Callable
+from typing import Optional, Dict, Any
+from pathlib import Path
+import json
 import time
-import threading
-from dataclasses import dataclass
-
-# Audio parameters
-SAMPLE_RATE = 44100  # Hz
-TONE_DURATION = 0.15  # seconds per tone
-SILENCE_DURATION = 0.05  # seconds between tones
-AMPLITUDE = 0.5  # Volume level (0.0 to 1.0)
-
-# Command encoding using dual-tone frequencies (Hz)
-COMMAND_TONES = {
-    'RUN': (697, 1209),
-    'RUN_COMMAND_RECEIVED': (770, 1336),
-    'RUN_DONE': (852, 1477),
-}
-
-# Detection thresholds
-DETECTION_THRESHOLD = 0.05
-FREQUENCY_TOLERANCE = 100
-
-
-@dataclass
-class AudioConfig:
-    """Configuration for audio input/output devices."""
-    input_device: Optional[int] = None
-    output_device: Optional[int] = None
-    sample_rate: int = SAMPLE_RATE
-    
-    @classmethod
-    def auto_detect(cls) -> 'AudioConfig':
-        """Auto-detect default audio devices."""
-        return cls()
 
 
 class Microscope:
     """
-    Microscope controller supporting both commander and listener modes.
+    File-based remote desktop microscope controller.
     
-    Commander mode: Send RUN commands via audio (for run_protocol_cli.py)
-    Listener mode: Receive commands via audio (for microscope_gui_control.py)
+    Communicates with C# RemoteDesktopServer.exe via shared folder.
+    The server monitors command.json and updates response.json.
+    
+    Configuration:
+        - shared_folder: Network path to shared folder (e.g., r"\\\\MICROSCOPE-PC\\RemoteDesktop")
+        - run_button_x, run_button_y: Coordinates of Run button
+        - running_button_x, running_button_y: Coordinates of button when acquisition is running
     """
     
-    def __init__(self, config: AudioConfig = None):
-        """Initialize the microscope controller."""
-        self.is_initialized = False
-        self.last_error = ""
-        self.config = config or AudioConfig.auto_detect()
-        self._listener_callback = None
-        self._is_listening = False
-        self._listen_thread = None
-        
-        try:
-            self.is_initialized = True
-        except Exception as e:
-            self.last_error = f"Failed to initialize Microscope: {e}"
+    # Default button coordinates (update these for your microscope software)
+    DEFAULT_RUN_X = 450
+    DEFAULT_RUN_Y = 120
+    DEFAULT_RUNNING_X = 450
+    DEFAULT_RUNNING_Y = 120
     
-    # ==================== Commander Mode Methods ====================
-    
-    def _generate_tone(self, freq1: float, freq2: float, duration: float) -> np.ndarray:
-        """Generate a dual-tone signal."""
-        t = np.linspace(0, duration, int(self.config.sample_rate * duration))
-        tone1 = np.sin(2 * np.pi * freq1 * t)
-        tone2 = np.sin(2 * np.pi * freq2 * t)
-        combined = (tone1 + tone2) * AMPLITUDE / 2
-        
-        # Apply envelope to reduce clicking
-        envelope = np.ones_like(combined)
-        fade_samples = int(0.01 * self.config.sample_rate)
-        envelope[:fade_samples] = np.linspace(0, 1, fade_samples)
-        envelope[-fade_samples:] = np.linspace(1, 0, fade_samples)
-        
-        return combined * envelope
-    
-    def send_command(self, command: str) -> bool:
-        """Send a command via audio output."""
-        if command not in COMMAND_TONES:
-            print(f"Unknown command: {command}")
-            return False
-        
-        freq1, freq2 = COMMAND_TONES[command]
-        
-        # Generate tone sequence (send 3 times for reliability)
-        tones = []
-        for _ in range(3):
-            tones.append(self._generate_tone(freq1, freq2, TONE_DURATION))
-            tones.append(np.zeros(int(self.config.sample_rate * SILENCE_DURATION)))
-        
-        audio_signal = np.concatenate(tones)
-        
-        try:
-            print(f"Sending command: {command} ({freq1}Hz + {freq2}Hz)")
-            sd.play(audio_signal, samplerate=self.config.sample_rate, 
-                   device=self.config.output_device)
-            sd.wait()
-            return True
-        except Exception as e:
-            print(f"Error sending command: {e}")
-            return False
-    
-    def run(self) -> bool:
+    def __init__(
+        self,
+        shared_folder: str = r"\\BIPHUB\RemoteDesktopServer_Win7\status",
+        run_button_x: Optional[int] = None,
+        run_button_y: Optional[int] = None,
+        running_button_x: Optional[int] = None,
+        running_button_y: Optional[int] = None
+    ):
         """
-        Send RUN command via audio to trigger microscope acquisition.
-        
-        Returns:
-            True if command was sent successfully, False otherwise
-        """
-        if not self.is_initialized:
-            print(f"[MICROSCOPE ERROR] Not initialized: {self.last_error}")
-            return False
-        
-        try:
-            print("[MICROSCOPE] Sending RUN command via audio...")
-            success = self.send_command('RUN')
-            if success:
-                print("[MICROSCOPE] ✓ RUN command sent successfully")
-            else:
-                print("[MICROSCOPE] ✗ Failed to send RUN command")
-            return success
-        except Exception as e:
-            print(f"[MICROSCOPE ERROR] Exception during command send: {e}")
-            return False
-    
-    def acquire(self) -> bool:
-        """Alias for run() - trigger microscope image acquisition."""
-        return self.run()
-    
-    # ==================== Listener Mode Methods ====================
-    
-    def _detect_tones(self, audio_data: np.ndarray) -> Optional[str]:
-        """Detect which command tones are present in audio data."""
-        # Compute FFT
-        fft = np.fft.rfft(audio_data)
-        freqs = np.fft.rfftfreq(len(audio_data), 1/self.config.sample_rate)
-        magnitude = np.abs(fft) / len(audio_data)
-        
-        # Find peaks above threshold
-        peaks_idx = signal.find_peaks(magnitude, height=DETECTION_THRESHOLD)[0]
-        detected_freqs = freqs[peaks_idx]
-        detected_mags = magnitude[peaks_idx]
-        
-        # Print detected frequencies if any significant signal present
-        if len(detected_freqs) > 0:
-            top_peaks = sorted(zip(detected_freqs, detected_mags), 
-                             key=lambda x: x[1], reverse=True)[:8]
-            freq_str = ", ".join([f"{freq:.1f}Hz ({mag:.3f})" for freq, mag in top_peaks])
-            print(f"Detected frequencies: {freq_str}")
-        
-        # Match against known command tones with scoring
-        best_match = None
-        best_score = 0
-        
-        for command, (freq1, freq2) in COMMAND_TONES.items():
-            matches1 = [(f, m) for f, m in zip(detected_freqs, detected_mags) 
-                       if abs(f - freq1) < FREQUENCY_TOLERANCE]
-            matches2 = [(f, m) for f, m in zip(detected_freqs, detected_mags) 
-                       if abs(f - freq2) < FREQUENCY_TOLERANCE]
-            
-            if matches1 and matches2:
-                score = max(m for f, m in matches1) + max(m for f, m in matches2)
-                best_f1 = min(matches1, key=lambda x: abs(x[0] - freq1))
-                best_f2 = min(matches2, key=lambda x: abs(x[0] - freq2))
-                freq_error = abs(best_f1[0] - freq1) + abs(best_f2[0] - freq2)
-                score = score * (1 - freq_error / 400)
-                
-                if score > best_score:
-                    best_score = score
-                    best_match = command
-                    print(f"  -> Matches {command}: {best_f1[0]:.1f}Hz≈{freq1}Hz, {best_f2[0]:.1f}Hz≈{freq2}Hz (score: {score:.3f})")
-        
-        return best_match
-    
-    def _audio_callback(self, indata, frames, time_info, status):
-        """Process incoming audio data."""
-        if status:
-            print(f"Audio status: {status}")
-        
-        # Convert to mono if stereo
-        if len(indata.shape) > 1:
-            audio_mono = indata.mean(axis=1)
-        else:
-            audio_mono = indata.flatten()
-        
-        # Detect command
-        command = self._detect_tones(audio_mono)
-        if command and self._listener_callback:
-            self._listener_callback(command)
-    
-    def start_listening(self, callback: Callable[[str], None]):
-        """
-        Start listening for commands in background thread.
+        Initialize microscope controller.
         
         Args:
-            callback: Function to call when a command is received
+            shared_folder: Path to shared folder for command.json/response.json
+            run_button_x: X coordinate of Run button (uses default if None)
+            run_button_y: Y coordinate of Run button
+            running_button_x: X coordinate when acquisition running
+            running_button_y: Y coordinate when acquisition running
         """
-        if self._is_listening:
-            print("Already listening")
-            return
+        self.shared_folder = Path(shared_folder)
+        self.command_file = self.shared_folder / "command.json"
+        self.response_file = self.shared_folder / "response.json"
         
-        self._listener_callback = callback
-        self._is_listening = True
+        self.run_x = run_button_x or self.DEFAULT_RUN_X
+        self.run_y = run_button_y or self.DEFAULT_RUN_Y
+        self.running_x = running_button_x or self.DEFAULT_RUNNING_X
+        self.running_y = running_button_y or self.DEFAULT_RUNNING_Y
         
-        def listen_loop():
-            blocksize = int(TONE_DURATION * self.config.sample_rate)
-            try:
-                with sd.InputStream(callback=self._audio_callback,
-                                  device=self.config.input_device,
-                                  channels=1,
-                                  samplerate=self.config.sample_rate,
-                                  blocksize=blocksize):
-                    print("Listening for commands... Press Ctrl+C to stop")
-                    while self._is_listening:
-                        time.sleep(0.1)
-            except Exception as e:
-                print(f"Error in listen loop: {e}")
-                self._is_listening = False
+        self.is_initialized = False
+        self.last_error = ""
         
-        self._listen_thread = threading.Thread(target=listen_loop, daemon=True)
-        self._listen_thread.start()
+    def initialize(self) -> bool:
+        """
+        Check if shared folder is accessible.
+        
+        Returns:
+            bool: True if shared folder exists and is writable
+        """
+        try:
+            if not self.shared_folder.exists():
+                self.last_error = f"Shared folder not accessible: {self.shared_folder}"
+                return False
+            
+            # Test write access by creating a test command
+            test_result = self._send_command("screenshot")
+            if not test_result:
+                self.last_error = "Failed to communicate with C# server"
+                return False
+            
+            self.is_initialized = True
+            return True
+            
+        except Exception as e:
+            self.last_error = f"Initialization failed: {e}"
+            return False
     
-    def stop_listening(self):
-        """Stop listening for commands."""
-        self._is_listening = False
-        if self._listen_thread:
-            self._listen_thread.join(timeout=2.0)
+    def _send_command(self, action: str, **kwargs) -> bool:
+        """
+        Send command to C# server via command.json file.
+        
+        Args:
+            action: Command action (click, type, key, screenshot, shutdown)
+            **kwargs: Additional command parameters (x, y, text, key, etc.)
+        
+        Returns:
+            bool: True if command sent and response received successfully
+        """
+        try:
+            # Clear old response file
+            if self.response_file.exists():
+                self.response_file.unlink()
+            
+            # Write command
+            command = {"action": action, **kwargs}
+            with open(self.command_file, 'w') as f:
+                json.dump(command, f)
+            
+            # Wait for response (C# server monitors file every 100ms)
+            timeout = 5.0
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if self.response_file.exists():
+                    with open(self.response_file, 'r') as f:
+                        response = json.load(f)
+                    
+                    # C# server uses "status": "ok" or "status": "error"
+                    if response.get("status") == "ok":
+                        return True
+                    elif response.get("status") == "error":
+                        self.last_error = response.get("error", "Unknown error")
+                        return False
+                
+                time.sleep(0.1)
+            
+            self.last_error = "Timeout waiting for server response"
+            return False
+            
+        except Exception as e:
+            self.last_error = f"Command failed: {e}"
+            return False
     
-    # ==================== Utility Methods ====================
+    def run(self, image_path: str | dict = "run") -> bool:
+        """
+        Find and click the Run button using template matching or coordinates.
+        
+        The button image should be in the buttons/ folder of the shared directory.
+        
+        Args:
+            image_path: Name of button image file (e.g., "Run1_start", "stop", "capture")
+                       OR dict with coordinate click: {"action": "click", "x": 100, "y": 200}
+        
+        Returns:
+            bool: True if button found and clicked successfully
+        """
+        # Handle coordinate-based clicking (dict format)
+        if isinstance(image_path, dict):
+            if image_path.get("action") == "click":
+                return self._send_command("click", x=image_path["x"], y=image_path["y"])
+            else:
+                print(f"[ERROR] Unknown action in dict: {image_path}")
+                return False
+        
+        # Handle template matching (string format)
+        # Remove .png extension if provided (will be added by server)
+        image_name = image_path.replace(".png", "")
+        return self._send_command("find_and_click", image=image_name)
     
-    @staticmethod
-    def list_audio_devices():
-        """List available audio input and output devices."""
-        print("\n=== Available Audio Devices ===")
-        devices = sd.query_devices()
-        for i, device in enumerate(devices):
-            device_type = []
-            if device['max_input_channels'] > 0:
-                device_type.append("INPUT")
-            if device['max_output_channels'] > 0:
-                device_type.append("OUTPUT")
-            print(f"{i}: {device['name']} ({', '.join(device_type)})")
-        print()
+    def wait_done(self, timeout: float = 300.0) -> bool:
+        """
+        Wait for microscope acquisition to finish.
+        
+        This monitors the same button coordinates - when acquisition is running,
+        the button might show "Stop" or be disabled. When done, it reverts.
+        
+        TODO: Implement actual detection logic (screenshot comparison or pixel check)
+        
+        Args:
+            timeout: Maximum time to wait in seconds
+        
+        Returns:
+            bool: True if acquisition finished within timeout
+        """
+        # Placeholder: For now just wait a bit
+        # Real implementation would check screenshot pixels or button state
+        time.sleep(2.0)
+        return True
     
-    def close(self):
-        """Clean up resources."""
-        self.stop_listening()
+    def click(self, x: int, y: int, button: str = "left") -> bool:
+        """
+        Click at specific coordinates.
+        
+        Args:
+            x: X coordinate
+            y: Y coordinate
+            button: Mouse button ("left", "right", or "middle")
+        
+        Returns:
+            bool: True if successful
+        """
+        return self._send_command("click", x=x, y=y, button=button)
+    
+    def type_text(self, text: str) -> bool:
+        """
+        Type text on the microscope PC.
+        
+        Args:
+            text: Text to type
+        
+        Returns:
+            bool: True if successful
+        """
+        return self._send_command("type", text=text)
+    
+    def press_key(self, key: str) -> bool:
+        """
+        Press a keyboard key.
+        
+        Args:
+            key: Key name (enter, tab, escape, space, etc.)
+        
+        Returns:
+            bool: True if successful
+        """
+        return self._send_command("key", key=key)
+    
+    def take_screenshot(self) -> bool:
+        """
+        Request a screenshot from the microscope PC.
+        
+        The screenshot will be saved to screenshot.jpg in the shared folder.
+        
+        Returns:
+            bool: True if successful
+        """
+        return self._send_command("screenshot")
+    
+    def close(self) -> bool:
+        """
+        Close connection (no-op for file-based communication).
+        
+        Returns:
+            bool: Always True
+        """
+        self.is_initialized = False
+        return True
     
     def get_error_details(self) -> str:
-        """Return detailed error message if initialization failed."""
+        """
+        Get detailed error message from last operation.
+        
+        Returns:
+            str: Error details
+        """
         return self.last_error
     
     def get_suggested_fix(self) -> str:
-        """Return suggested troubleshooting steps."""
-        if not self.is_initialized:
+        """
+        Get suggested fix for last error.
+        
+        Returns:
+            str: Troubleshooting suggestions
+        """
+        if "not accessible" in self.last_error:
             return (
-                "Check that audio devices are properly configured in Windows Sound settings. "
-                "For listener mode, verify the other PC is sending commands. "
-                "For commander mode, verify the other PC is running microscope_gui_control.py."
+                "1. Check network share is available: \\\\BIPHUB\\RemoteDesktopServer_Win7\n"
+                "2. Verify C# server is running on Windows 7 PC\n"
+                "3. Test share access: dir \\\\BIPHUB\\RemoteDesktopServer_Win7\\C_RemoteDesktop"
             )
+        elif "Timeout" in self.last_error:
+            return (
+                "1. Check C# RemoteDesktopServer.exe is running\n"
+                "2. Verify it's monitoring C:\\RemoteDesktop folder\n"
+                "3. Check server console for errors"
+            )
+        else:
+            return "Check server logs for detailed error information"
+
+
+# For backward compatibility with YAML configs
+class MockMicroscope:
+    """Mock microscope for dry-run testing."""
+    
+    def __init__(self, **kwargs):
+        self.is_initialized = False
+        self.last_error = ""
+    
+    def initialize(self) -> bool:
+        self.is_initialized = True
+        return True
+    
+    def run(self, image_path: str = "run.png") -> bool:
+        print(f"[MOCK] Would click Run button")
+        return True
+    
+    def wait_done(self, timeout: float = 300.0) -> bool:
+        print(f"[MOCK] Would wait for acquisition to finish")
+        return True
+    
+    def click(self, x: int, y: int, button: str = "left") -> bool:
+        print(f"[MOCK] Would click at ({x}, {y}) with {button} button")
+        return True
+    
+    def type_text(self, text: str) -> bool:
+        print(f"[MOCK] Would type: {text}")
+        return True
+    
+    def press_key(self, key: str) -> bool:
+        print(f"[MOCK] Would press key: {key}")
+        return True
+    
+    def take_screenshot(self) -> bool:
+        print(f"[MOCK] Would take screenshot")
+        return True
+    
+    def close(self) -> bool:
+        return True
+    
+    def get_error_details(self) -> str:
+        return ""
+    
+    def get_suggested_fix(self) -> str:
         return ""

@@ -1,0 +1,5 @@
+{
+  "action": "key",
+  "key": "escape",
+  "_comment": "Press Escape key - closes dialogs/cancels operations"
+}

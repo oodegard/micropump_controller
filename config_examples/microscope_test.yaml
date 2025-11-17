@@ -1,5 +1,10 @@
 # Example: Microscope control via audio commands
 
+# Microscope communication mode: 'audio' or 'ethernet'
+# - audio: Uses audio cable connection (default)
+# - ethernet: Uses direct ethernet cable connection (plug-and-play, no network setup)
+microscope_mode: audio
+
 pump settings:
   default:
     waveform: RECT

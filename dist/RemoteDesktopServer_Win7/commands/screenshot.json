@@ -1,0 +1,4 @@
+{
+  "action": "screenshot",
+  "_comment": "Captures current screen and saves as screenshot.jpg in the shared folder"
+}

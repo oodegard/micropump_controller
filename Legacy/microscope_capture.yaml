@@ -1,0 +1,29 @@
+######################################################################
+# Microscope Capture - Trigger image acquisition via audio
+#
+# This sends a CAPTURE command to the microscope PC via audio modem,
+# waits for the microscope to find and click the Acquire button using
+# image recognition, monitor the button visibility, and send back a 
+# DONE signal when acquisition completes (button reappears).
+#
+# Run (real hardware):
+#   uv run python run_protocol_cli.py config_examples/microscope_capture.yaml
+#
+# Requirements:
+#   - Microscope PC running: python microscope_listener.py --button-image run.png
+#   - Audio cable connecting sender output to microscope input
+#   - Audio cable connecting microscope output to sender input
+#   - Button image file (default: run.png in project root)
+######################################################################
+
+pump settings:
+  # No pump settings needed for microscope-only test
+
+required hardware:
+  pump: false
+  valve: false
+  microscope: true  # Enable microscope audio communication
+
+run:
+  # Simple single capture
+  - microscope_acquire: true

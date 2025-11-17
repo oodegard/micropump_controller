@@ -1,0 +1,5 @@
+{
+  "action": "key",
+  "key": "tab",
+  "_comment": "Press Tab key - moves to next field"
+}
