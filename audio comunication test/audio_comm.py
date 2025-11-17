@@ -117,6 +117,14 @@ class AudioListener:
         peaks_idx = signal.find_peaks(magnitude, height=DETECTION_THRESHOLD)[0]
         detected_freqs = freqs[peaks_idx]
         
+        # Print detected frequencies if any significant signal present
+        if len(detected_freqs) > 0:
+            # Get top frequencies by magnitude
+            top_peaks = sorted(zip(detected_freqs, magnitude[peaks_idx]), 
+                             key=lambda x: x[1], reverse=True)[:5]
+            freq_str = ", ".join([f"{freq:.1f}Hz ({mag:.3f})" for freq, mag in top_peaks])
+            print(f"Detected frequencies: {freq_str}")
+        
         # Match against known command tones
         for command, (freq1, freq2) in COMMAND_TONES.items():
             freq1_detected = any(abs(f - freq1) < FREQUENCY_TOLERANCE for f in detected_freqs)
