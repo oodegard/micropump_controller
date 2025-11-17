@@ -102,6 +102,10 @@ class AudioModem:
         )
         audio_segments.append(preamble)
         
+        # 1.5. Gap after preamble to prevent bleeding into data bits
+        gap = np.zeros(int(0.05 * self.config.sample_rate))  # 50ms silence
+        audio_segments.append(gap)
+        
         # 2. Command bits (4 bits)
         command_bits = self._encode_bits(command.value, num_bits=4)
         for bit in command_bits:
@@ -197,7 +201,9 @@ class AudioModem:
             if (self._is_frequency_match(freq, self.config.preamble_freq) and 
                 power > self.config.min_signal_power):
                 preamble_found = True
-                preamble_end_idx = i + chunk_size
+                # Skip preamble + 50ms gap before reading data bits
+                gap_samples = int(0.05 * self.config.sample_rate)
+                preamble_end_idx = i + chunk_size + gap_samples
                 if debug:
                     print(f"    [DEBUG] ✓ Preamble found at {i/self.config.sample_rate:.2f}s!")
                 break
