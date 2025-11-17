@@ -1,0 +1,28 @@
+# Example: Microscope control via audio commands
+
+pump settings:
+  default:
+    waveform: RECT
+    voltage: 100
+    freq: 50
+
+required hardware:
+  pump: false
+  valve: false
+  microscope: true
+
+run:
+  # Send RUN command to microscope PC
+  - microscope: run
+  
+  # Wait for microscope to process
+  - wait: 2
+  
+  # Send another RUN command
+  - microscope: run
+  
+  # Wait
+  - wait: 1
+  
+  # Send final RUN command
+  - microscope: run

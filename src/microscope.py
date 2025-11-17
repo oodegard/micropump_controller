@@ -1,10 +1,9 @@
 """
-Bidirectional audio communication system for PC-to-PC control.
+Microscope controller that sends and receives audio commands for PC-to-PC communication.
 
-This module sends and receives simple commands via audio (microphone/speaker jack):
-- RUN: Initiates a command on the receiving PC
-- RUN_COMMAND_RECEIVED: Acknowledges receipt of RUN command
-- RUN_DONE: Signals completion of the command
+This module provides a unified Microscope class that can:
+- Send RUN commands via audio (commander mode) for run_protocol_cli.py
+- Receive commands via audio (listener mode) for microscope_gui_control.py
 
 The system uses DTMF-like tone sequences for reliable communication over audio cables.
 """
@@ -24,16 +23,15 @@ SILENCE_DURATION = 0.05  # seconds between tones
 AMPLITUDE = 0.5  # Volume level (0.0 to 1.0)
 
 # Command encoding using dual-tone frequencies (Hz)
-# Each command uses a unique pair of frequencies
 COMMAND_TONES = {
-    'RUN': (697, 1209),  # Low + Mid 
-    'RUN_COMMAND_RECEIVED': (770, 1336),  # Mid-Low + Mid
-    'RUN_DONE': (852, 1477),  # Mid + High
+    'RUN': (697, 1209),
+    'RUN_COMMAND_RECEIVED': (770, 1336),
+    'RUN_DONE': (852, 1477),
 }
 
 # Detection thresholds
-DETECTION_THRESHOLD = 0.05  # Minimum signal strength to consider (lowered for better sensitivity)
-FREQUENCY_TOLERANCE = 100  # Hz tolerance for frequency matching (increased for cable transmission)
+DETECTION_THRESHOLD = 0.05
+FREQUENCY_TOLERANCE = 100
 
 
 @dataclass
@@ -49,12 +47,30 @@ class AudioConfig:
         return cls()
 
 
-class AudioCommander:
-    """Handles sending commands via audio output."""
+class Microscope:
+    """
+    Microscope controller supporting both commander and listener modes.
+    
+    Commander mode: Send RUN commands via audio (for run_protocol_cli.py)
+    Listener mode: Receive commands via audio (for microscope_gui_control.py)
+    """
     
     def __init__(self, config: AudioConfig = None):
+        """Initialize the microscope controller."""
+        self.is_initialized = False
+        self.last_error = ""
         self.config = config or AudioConfig.auto_detect()
+        self._listener_callback = None
+        self._is_listening = False
+        self._listen_thread = None
         
+        try:
+            self.is_initialized = True
+        except Exception as e:
+            self.last_error = f"Failed to initialize Microscope: {e}"
+    
+    # ==================== Commander Mode Methods ====================
+    
     def _generate_tone(self, freq1: float, freq2: float, duration: float) -> np.ndarray:
         """Generate a dual-tone signal."""
         t = np.linspace(0, duration, int(self.config.sample_rate * duration))
@@ -64,7 +80,7 @@ class AudioCommander:
         
         # Apply envelope to reduce clicking
         envelope = np.ones_like(combined)
-        fade_samples = int(0.01 * self.config.sample_rate)  # 10ms fade
+        fade_samples = int(0.01 * self.config.sample_rate)
         envelope[:fade_samples] = np.linspace(0, 1, fade_samples)
         envelope[-fade_samples:] = np.linspace(1, 0, fade_samples)
         
@@ -95,17 +111,36 @@ class AudioCommander:
         except Exception as e:
             print(f"Error sending command: {e}")
             return False
-
-
-class AudioListener:
-    """Handles receiving commands via audio input."""
     
-    def __init__(self, config: AudioConfig = None, callback: Optional[Callable[[str], None]] = None):
-        self.config = config or AudioConfig.auto_detect()
-        self.callback = callback
-        self.is_listening = False
-        self._listen_thread = None
+    def run(self) -> bool:
+        """
+        Send RUN command via audio to trigger microscope acquisition.
         
+        Returns:
+            True if command was sent successfully, False otherwise
+        """
+        if not self.is_initialized:
+            print(f"[MICROSCOPE ERROR] Not initialized: {self.last_error}")
+            return False
+        
+        try:
+            print("[MICROSCOPE] Sending RUN command via audio...")
+            success = self.send_command('RUN')
+            if success:
+                print("[MICROSCOPE] ✓ RUN command sent successfully")
+            else:
+                print("[MICROSCOPE] ✗ Failed to send RUN command")
+            return success
+        except Exception as e:
+            print(f"[MICROSCOPE ERROR] Exception during command send: {e}")
+            return False
+    
+    def acquire(self) -> bool:
+        """Alias for run() - trigger microscope image acquisition."""
+        return self.run()
+    
+    # ==================== Listener Mode Methods ====================
+    
     def _detect_tones(self, audio_data: np.ndarray) -> Optional[str]:
         """Detect which command tones are present in audio data."""
         # Compute FFT
@@ -120,7 +155,6 @@ class AudioListener:
         
         # Print detected frequencies if any significant signal present
         if len(detected_freqs) > 0:
-            # Get top frequencies by magnitude
             top_peaks = sorted(zip(detected_freqs, detected_mags), 
                              key=lambda x: x[1], reverse=True)[:8]
             freq_str = ", ".join([f"{freq:.1f}Hz ({mag:.3f})" for freq, mag in top_peaks])
@@ -131,22 +165,16 @@ class AudioListener:
         best_score = 0
         
         for command, (freq1, freq2) in COMMAND_TONES.items():
-            # Find closest matches to target frequencies
             matches1 = [(f, m) for f, m in zip(detected_freqs, detected_mags) 
                        if abs(f - freq1) < FREQUENCY_TOLERANCE]
             matches2 = [(f, m) for f, m in zip(detected_freqs, detected_mags) 
                        if abs(f - freq2) < FREQUENCY_TOLERANCE]
             
             if matches1 and matches2:
-                # Score based on magnitude of detected frequencies
                 score = max(m for f, m in matches1) + max(m for f, m in matches2)
-                
-                # Also consider frequency accuracy
                 best_f1 = min(matches1, key=lambda x: abs(x[0] - freq1))
                 best_f2 = min(matches2, key=lambda x: abs(x[0] - freq2))
                 freq_error = abs(best_f1[0] - freq1) + abs(best_f2[0] - freq2)
-                
-                # Penalize large frequency errors
                 score = score * (1 - freq_error / 400)
                 
                 if score > best_score:
@@ -169,16 +197,22 @@ class AudioListener:
         
         # Detect command
         command = self._detect_tones(audio_mono)
-        if command and self.callback:
-            self.callback(command)
+        if command and self._listener_callback:
+            self._listener_callback(command)
     
-    def start_listening(self):
-        """Start listening for commands in background thread."""
-        if self.is_listening:
+    def start_listening(self, callback: Callable[[str], None]):
+        """
+        Start listening for commands in background thread.
+        
+        Args:
+            callback: Function to call when a command is received
+        """
+        if self._is_listening:
             print("Already listening")
             return
         
-        self.is_listening = True
+        self._listener_callback = callback
+        self._is_listening = True
         
         def listen_loop():
             blocksize = int(TONE_DURATION * self.config.sample_rate)
@@ -189,60 +223,51 @@ class AudioListener:
                                   samplerate=self.config.sample_rate,
                                   blocksize=blocksize):
                     print("Listening for commands... Press Ctrl+C to stop")
-                    while self.is_listening:
+                    while self._is_listening:
                         time.sleep(0.1)
             except Exception as e:
                 print(f"Error in listen loop: {e}")
-                self.is_listening = False
+                self._is_listening = False
         
         self._listen_thread = threading.Thread(target=listen_loop, daemon=True)
         self._listen_thread.start()
     
     def stop_listening(self):
         """Stop listening for commands."""
-        self.is_listening = False
+        self._is_listening = False
         if self._listen_thread:
             self._listen_thread.join(timeout=2.0)
-
-
-def list_audio_devices():
-    """List available audio input and output devices."""
-    print("\n=== Available Audio Devices ===")
-    devices = sd.query_devices()
-    for i, device in enumerate(devices):
-        device_type = []
-        if device['max_input_channels'] > 0:
-            device_type.append("INPUT")
-        if device['max_output_channels'] > 0:
-            device_type.append("OUTPUT")
-        print(f"{i}: {device['name']} ({', '.join(device_type)})")
-    print()
-
-
-# Example usage functions
-def command_received_handler(command: str):
-    """
-    Example callback for received commands.
-    NOTE: For production use, implement your handler in listen.py instead.
-    """
-    print(f">>> RECEIVED: {command}")
-
-
-if __name__ == "__main__":
-    print("Audio Communication System")
-    print("=" * 50)
-    list_audio_devices()
     
-    print("\nTest Mode: This will send all three commands in sequence")
-    print("Make sure the other PC is running in listen mode!\n")
+    # ==================== Utility Methods ====================
     
-    commander = AudioCommander()
+    @staticmethod
+    def list_audio_devices():
+        """List available audio input and output devices."""
+        print("\n=== Available Audio Devices ===")
+        devices = sd.query_devices()
+        for i, device in enumerate(devices):
+            device_type = []
+            if device['max_input_channels'] > 0:
+                device_type.append("INPUT")
+            if device['max_output_channels'] > 0:
+                device_type.append("OUTPUT")
+            print(f"{i}: {device['name']} ({', '.join(device_type)})")
+        print()
     
-    time.sleep(1)
-    commander.send_command('RUN')
-    time.sleep(1)
-    commander.send_command('RUN_COMMAND_RECEIVED')
-    time.sleep(1)
-    commander.send_command('RUN_DONE')
+    def close(self):
+        """Clean up resources."""
+        self.stop_listening()
     
-    print("\nCommands sent! Check the receiving PC.")
+    def get_error_details(self) -> str:
+        """Return detailed error message if initialization failed."""
+        return self.last_error
+    
+    def get_suggested_fix(self) -> str:
+        """Return suggested troubleshooting steps."""
+        if not self.is_initialized:
+            return (
+                "Check that audio devices are properly configured in Windows Sound settings. "
+                "For listener mode, verify the other PC is sending commands. "
+                "For commander mode, verify the other PC is running microscope_gui_control.py."
+            )
+        return ""

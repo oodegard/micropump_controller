@@ -5,14 +5,21 @@ This script provides an interactive interface to send commands to the other PC.
 """
 
 import sys
-from audio_comm import AudioCommander, list_audio_devices, COMMAND_TONES
+import os
+
+# Add src folder to path
+_SRC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+
+from microscope import Microscope, COMMAND_TONES
 
 def main():
     print("Audio Communication - SEND MODE")
     print("=" * 50)
-    list_audio_devices()
     
-    commander = AudioCommander()
+    microscope = Microscope()
+    microscope.list_audio_devices()
     
     print("\nAvailable commands:")
     for i, cmd in enumerate(COMMAND_TONES.keys(), 1):
@@ -35,14 +42,14 @@ def main():
                 idx = int(user_input) - 1
                 if 0 <= idx < len(commands_list):
                     command = commands_list[idx]
-                    commander.send_command(command)
+                    microscope.send_command(command)
                 else:
                     print("Invalid command number")
             else:
                 # Try to match command name
                 cmd_upper = user_input.upper()
                 if cmd_upper in COMMAND_TONES:
-                    commander.send_command(cmd_upper)
+                    microscope.send_command(cmd_upper)
                 else:
                     print("Unknown command. Enter a number or 'q' to quit.")
                     

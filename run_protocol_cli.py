@@ -620,7 +620,23 @@ def run_sequence(
             print(f"[IMAGE] capture {image_id} (microscope not yet implemented)")
             continue
         
-        # New: Microscope acquire command
+        # Microscope run command
+        if "microscope" in step:
+            if not microscope:
+                print("[WARN] Microscope requested but not initialized")
+                continue
+            
+            action = step["microscope"]
+            if action == "run":
+                print(f"[MICROSCOPE] Triggering run command...")
+                success = microscope.run()
+                if not success:
+                    print(f"[MICROSCOPE] ✗ Command failed")
+            else:
+                print(f"[WARN] Unknown microscope action: {action}")
+            continue
+        
+        # Legacy: Microscope acquire command (alias for microscope: run)
         if "microscope_acquire" in step:
             if not microscope:
                 print("[WARN] Microscope requested but not initialized")

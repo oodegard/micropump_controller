@@ -9,19 +9,17 @@ This script listens for audio commands and controls the microscope GUI:
 The button image (run.png) should be placed in the same directory as this script.
 """
 
-
 import sys
 import os
 import time
 import pyautogui
-from typing import Optional
 
-# Add audio communication test folder to path
-_AUDIO_DIR = os.path.join(os.path.dirname(__file__), "audio comunication test")
-if _AUDIO_DIR not in sys.path:
-    sys.path.insert(0, _AUDIO_DIR)
+# Add src folder to path
+_SRC_DIR = os.path.join(os.path.dirname(__file__), "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
-from audio_comm import AudioListener, AudioCommander, list_audio_devices
+from microscope import Microscope
 
 # Configuration
 BUTTON_IMAGE = "run.png"  # Path to the button image to find and click
@@ -82,29 +80,31 @@ def find_and_click_button(button_image: str) -> bool:
         return False
 
 
-def command_handler(command: str):
-    """Handle received audio commands."""
-    print(f">>> RECEIVED: {command}")
-    
-    commander = AudioCommander()
-    
-    if command == 'RUN':
-        # Find and click the button
-        success = find_and_click_button(BUTTON_IMAGE)
+def create_command_handler(microscope: Microscope):
+    """Create command handler with microscope instance for sending responses."""
+    def command_handler(command: str):
+        """Handle received audio commands."""
+        print(f">>> RECEIVED: {command}")
         
-        # Send acknowledgment
-        time.sleep(0.3)
-        print("  -> Sending acknowledgment...")
-        commander.send_command('RUN_COMMAND_RECEIVED')
-        
-        if success:
-            # Signal completion
+        if command == 'RUN':
+            # Find and click the button
+            success = find_and_click_button(BUTTON_IMAGE)
+            
+            # Send acknowledgment
             time.sleep(0.3)
-            print("  -> Sending completion signal...")
-            commander.send_command('RUN_DONE')
-            print("  ✓ Workflow complete\n")
-        else:
-            print("  ✗ Workflow failed - button not clicked\n")
+            print("  -> Sending acknowledgment...")
+            microscope.send_command('RUN_COMMAND_RECEIVED')
+            
+            if success:
+                # Signal completion
+                time.sleep(0.3)
+                print("  -> Sending completion signal...")
+                microscope.send_command('RUN_DONE')
+                print("  ✓ Workflow complete\n")
+            else:
+                print("  ✗ Workflow failed - button not clicked\n")
+    
+    return command_handler
 
 
 def main():
@@ -120,7 +120,9 @@ def main():
     else:
         print(f"✓ Button image found: {button_path}\n")
     
-    list_audio_devices()
+    # Initialize microscope controller
+    microscope = Microscope()
+    microscope.list_audio_devices()
     
     print("\nStarting listener...")
     print("This script will:")
@@ -133,8 +135,8 @@ def main():
     print("\nPress Ctrl+C to stop\n")
     
     # Set up listener with callback
-    listener = AudioListener(callback=command_handler)
-    listener.start_listening()
+    handler = create_command_handler(microscope)
+    microscope.start_listening(callback=handler)
     
     try:
         # Keep running until interrupted
@@ -142,7 +144,7 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n\nStopping listener...")
-        listener.stop_listening()
+        microscope.stop_listening()
         print("Listener stopped.")
 
 
