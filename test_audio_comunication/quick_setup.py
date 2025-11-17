@@ -106,23 +106,36 @@ class QuickSetup:
         
         Returns: (detected, peak_magnitude)
         """
-        # FFT analysis
-        fft = np.fft.rfft(audio)
-        freqs = np.fft.rfftfreq(len(audio), 1 / self.sample_rate)
-        magnitude = np.abs(fft)
-        
-        # Find peak near target frequency
-        freq_mask = (freqs >= target_freq - tolerance) & (freqs <= target_freq + tolerance)
-        if not np.any(freq_mask):
+        # Check for valid audio data
+        if len(audio) == 0 or np.all(audio == 0):
             return False, 0.0
         
-        peak_mag = np.max(magnitude[freq_mask])
-        
-        # Check if peak is significant (threshold for detection)
-        threshold = 100.0  # Minimum magnitude to consider as signal
-        detected = peak_mag > threshold
-        
-        return detected, peak_mag
+        # FFT analysis with error handling
+        try:
+            fft = np.fft.rfft(audio)
+            freqs = np.fft.rfftfreq(len(audio), 1 / self.sample_rate)
+            magnitude = np.abs(fft)
+            
+            # Find peak near target frequency
+            freq_mask = (freqs >= target_freq - tolerance) & (freqs <= target_freq + tolerance)
+            if not np.any(freq_mask):
+                return False, 0.0
+            
+            peak_mag = float(np.max(magnitude[freq_mask]))
+            
+            # Check for invalid values
+            if np.isnan(peak_mag) or np.isinf(peak_mag):
+                return False, 0.0
+            
+            # Check if peak is significant (threshold for detection)
+            threshold = 100.0  # Minimum magnitude to consider as signal
+            detected = peak_mag > threshold
+            
+            return detected, peak_mag
+            
+        except Exception:
+            # If any error occurs during FFT, return no detection
+            return False, 0.0
     
     def listen_for_tone(self, target_freq: float, duration: float = 1.0,
                        show_status: bool = True) -> bool:
@@ -130,29 +143,42 @@ class QuickSetup:
         Listen for a specific frequency.
         Returns True if detected, False otherwise.
         """
-        recording = sd.rec(
-            int(duration * self.sample_rate),
-            samplerate=self.sample_rate,
-            channels=1,
-            device=self.input_device,
-            dtype='float32'
-        )
-        sd.wait()
-        
-        audio = recording[:, 0]
-        detected, magnitude = self.detect_frequency(audio, target_freq)
-        
-        if show_status:
-            if detected:
-                print(f"  🔊 DETECTED {target_freq} Hz (magnitude: {magnitude:.0f})")
-            else:
-                rms = np.sqrt(np.mean(audio ** 2))
-                if rms > 0.001:
-                    print(f"  ~ audio heard but not {target_freq} Hz (rms: {rms:.4f})")
+        try:
+            recording = sd.rec(
+                int(duration * self.sample_rate),
+                samplerate=self.sample_rate,
+                channels=1,
+                device=self.input_device,
+                dtype='float32'
+            )
+            sd.wait()
+            
+            # Extract audio data safely
+            audio = recording[:, 0]
+            
+            # Check for valid audio
+            if len(audio) == 0:
+                return False
+            
+            detected, magnitude = self.detect_frequency(audio, target_freq)
+            
+            if show_status:
+                if detected:
+                    print(f"  🔊 DETECTED {target_freq} Hz (magnitude: {magnitude:.0f})")
                 else:
-                    print(f"  - silence")
-        
-        return detected
+                    rms = np.sqrt(np.mean(audio ** 2))
+                    if rms > 0.001:
+                        print(f"  ~ audio heard but not {target_freq} Hz (rms: {rms:.4f})")
+                    else:
+                        print(f"  - silence")
+            
+            return detected
+            
+        except Exception as e:
+            # If any error during recording/detection, return False
+            if show_status:
+                print(f"  ! error during detection: {e}")
+            return False
     
     def handshake_loop(self) -> bool:
         """
