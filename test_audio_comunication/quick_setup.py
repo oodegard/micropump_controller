@@ -228,7 +228,8 @@ class QuickSetup:
         required_consecutive = 3  # Need 3 consecutive detections to confirm
         total_detections = 0  # Track total successful detections
         
-        max_iterations = 90  # 90 seconds timeout (increased from 60)
+        # Loop indefinitely until connection or user cancels
+        iteration = 0
         last_status = None  # Track last printed status to avoid duplicates
         
         # Create continuous tone signal with better parameters
@@ -258,7 +259,9 @@ class QuickSetup:
         time.sleep(0.5)
         
         try:
-            for i in range(max_iterations):
+            while True:  # Loop indefinitely until connection or Ctrl+C
+                iteration += 1
+                
                 # Listen for response while tone is playing in background
                 # Use longer duration for better detection
                 detected = self.listen_for_tone(self.handshake_freq, duration=1.5, show_status=False)
@@ -304,15 +307,11 @@ class QuickSetup:
                 
                 # Brief pause between iterations (not needed since listen_for_tone takes time)
             
-            stop_playing.set()  # Stop the continuous tone
-            sd.stop()
-            print("\n✗ Connection timeout - could not establish bidirectional link")
-            print(f"   Had {total_detections} total detections but not {required_consecutive} consecutive")
-            return False
-            
         except KeyboardInterrupt:
             stop_playing.set()
             sd.stop()
+            print("\n✗ Connection cancelled by user")
+            print(f"   Had {total_detections} total detections but not {required_consecutive} consecutive")
             raise
     
     def ask_role(self) -> Optional[Role]:
