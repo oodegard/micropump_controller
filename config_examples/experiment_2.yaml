@@ -19,12 +19,13 @@ run:
         - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
         - valve_on: 5   # Open valve for 10 seconds
         - pump_off: 0
-        - microscope: VScode_File
+        - microscope: Run1_start_W10
+          confidencew: 0.95
         - valve_off: 5  # Close valve for 10 seconds
 
         - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
         - valve_off: 5  # Close valve for 10 seconds
-        - microscope: VScode_File
+        - microscope: Run1_start_W10
   
   - pump_off: 0          # Turn off the pump (the value '0' is ignored)
 

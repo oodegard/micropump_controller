@@ -608,15 +608,23 @@ def run_sequence(
                     # Handle microscope command (generic button click)
                     if "microscope" in substep:
                         if not microscope:
-                            print("    [WARN] Microscope requested but not initialized")
-                            continue
+                            print("    [ERROR] Microscope requested but not initialized")
+                            print("[ABORT] Cannot continue without microscope - stopping protocol")
+                            raise RuntimeError("Microscope not initialized")
                         action = substep["microscope"]
+                        confidence = substep.get("confidence")
+                        timeout = substep.get("timeout")
+                        wait_complete = substep.get("wait_complete", True)
+                        print(f"    [DEBUG] substep={substep}, action={action}, confidence={confidence}")
                         print(f"    [MICROSCOPE] Finding and clicking button: {action}")
-                        success = microscope.run(image_path=action)
+                        success = microscope.run(image_path=action, confidence=confidence, timeout=timeout, wait_complete=wait_complete)
                         if success:
-                            print(f"    [MICROSCOPE] ✓ Button '{action}' clicked")
+                            print(f"    [MICROSCOPE] [OK] Button '{action}' clicked")
                         else:
-                            print(f"    [MICROSCOPE] ✗ Button '{action}' not found or click failed: {microscope.get_error_details()}")
+                            error_msg = microscope.get_error_details()
+                            print(f"    [MICROSCOPE] [FAIL] Button '{action}' not found or click failed: {error_msg}")
+                            print("[ABORT] Cannot continue without image acquisition - stopping protocol")
+                            raise RuntimeError(f"Microscope button click failed: {error_msg}")
                         continue
             
             print(f"[LOOP] Completed")
@@ -665,12 +673,18 @@ def run_sequence(
                     print(f"[MICROSCOPE] ✗ Screenshot failed")
             else:
                 # Treat any other value as a button name to click
+                confidence = step.get("confidence")
+                timeout = step.get("timeout")
+                wait_complete = step.get("wait_complete", True)
                 print(f"[MICROSCOPE] Finding and clicking button: {action}")
-                success = microscope.run(image_path=action)
+                success = microscope.run(image_path=action, confidence=confidence, timeout=timeout, wait_complete=wait_complete)
                 if success:
-                    print(f"[MICROSCOPE] ✓ Button '{action}' clicked")
+                    print(f"[MICROSCOPE] [OK] Button '{action}' clicked")
                 else:
-                    print(f"[MICROSCOPE] ✗ Button '{action}' not found or click failed: {microscope.get_error_details()}")
+                    error_msg = microscope.get_error_details()
+                    print(f"[MICROSCOPE] [FAIL] Button '{action}' not found or click failed: {error_msg}")
+                    print("[ABORT] Cannot continue without image acquisition - stopping protocol")
+                    raise RuntimeError(f"Microscope button click failed: {error_msg}")
             continue
         
         # Legacy: Microscope acquire command (alias for microscope: run)

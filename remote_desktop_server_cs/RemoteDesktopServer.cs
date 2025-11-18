@@ -41,7 +41,7 @@ namespace RemoteDesktop
         private string screenshotFile;
         private string buttonsFolder;
         private bool isRunning = false;
-        private const double MATCH_THRESHOLD = 0.8; // Template matching confidence threshold
+        private const double DEFAULT_MATCH_THRESHOLD = 0.98; // High confidence threshold (accounts for minor rendering differences)
 
         public RemoteDesktopServer(string sharedPath)
         {
@@ -64,7 +64,7 @@ namespace RemoteDesktop
             string statusFolder = Path.Combine(sharedFolder, "status");
             commandFile = Path.Combine(statusFolder, "command.json");
             responseFile = Path.Combine(statusFolder, "response.json");
-            screenshotFile = Path.Combine(statusFolder, "screenshot.jpg");
+            screenshotFile = Path.Combine(statusFolder, "screenshot.png");
             buttonsFolder = Path.Combine(sharedFolder, "buttons");
             
             // Create shared folder and status subfolder if they don't exist
@@ -222,7 +222,11 @@ namespace RemoteDesktop
                         }
                         
                         string buttonPath = Path.Combine(buttonsFolder, imageName);
-                        Point buttonLocation = FindButton(buttonPath);
+                        
+                        // Get optional confidence threshold (default 1.0 for perfect match)
+                        double confidence = cmd.confidence != null ? (double)cmd.confidence : DEFAULT_MATCH_THRESHOLD;
+                        
+                        Point buttonLocation = FindButton(buttonPath, confidence);
                         
                         if (buttonLocation == Point.Empty)
                         {
@@ -236,15 +240,26 @@ namespace RemoteDesktop
                         {
                             string btnClick = cmd.button != null ? cmd.button.ToString() : "left";
                             MouseClick(buttonLocation.X, buttonLocation.Y, btnClick);
+                            
+                            // Send immediate "clicked" response
                             UpdateResponse(new Dictionary<string, object> 
                             { 
-                                { "status", "ok" },
+                                { "status", "clicked" },
                                 { "action", "find_and_click" },
                                 { "image", imageName },
                                 { "x", buttonLocation.X },
                                 { "y", buttonLocation.Y },
                                 { "button", btnClick }
                             });
+                            
+                            // Wait for completion (default enabled with 300s timeout)
+                            bool waitComplete = cmd.wait_complete == null || (bool)cmd.wait_complete;
+                            int timeoutSeconds = cmd.timeout != null ? (int)cmd.timeout : 300;
+                            
+                            if (waitComplete)
+                            {
+                                WaitForButtonReturn(buttonPath, imageName, timeoutSeconds, confidence);
+                            }
                         }
                         break;
 
@@ -336,8 +351,8 @@ namespace RemoteDesktop
                     g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
                 }
                 
-                // Save as JPEG with compression
-                SaveJpeg(screenshot, screenshotFile, 75);
+                // Save as PNG (lossless) for perfect template matching
+                screenshot.Save(screenshotFile, ImageFormat.Png);
             }
             
             Console.WriteLine(string.Format("Screenshot saved: {0}", screenshotFile));
@@ -399,8 +414,9 @@ namespace RemoteDesktop
         /// Find button on screen using template matching (EmguCV)
         /// </summary>
         /// <param name="buttonPath">Path to button image template (PNG)</param>
+        /// <param name="threshold">Confidence threshold (0.0-1.0, default 1.0 for perfect match)</param>
         /// <returns>Center point of button, or Point.Empty if not found</returns>
-        private Point FindButton(string buttonPath)
+        private Point FindButton(string buttonPath, double threshold = 1.0)
         {
             try
             {
@@ -410,7 +426,7 @@ namespace RemoteDesktop
                     return Point.Empty;
                 }
                 
-                Console.WriteLine(string.Format("Searching for button: {0}", Path.GetFileName(buttonPath)));
+                Console.WriteLine(string.Format("Searching for button: {0} (threshold: {1:F3})", Path.GetFileName(buttonPath), threshold));
                 
                 // Load the template image (the screenshot of the button)
                 Image<Bgr, byte> template = new Image<Bgr, byte>(buttonPath);
@@ -424,6 +440,17 @@ namespace RemoteDesktop
                         g.CopyFromScreen(bounds.X, bounds.Y, 0, 0, screenshot.Size);
                     }
                     
+                    // Save screenshot for debugging (always save when searching)
+                    try
+                    {
+                        screenshot.Save(screenshotFile, ImageFormat.Png);
+                        Console.WriteLine(string.Format("Debug screenshot saved: {0}", screenshotFile));
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(string.Format("Warning: Could not save debug screenshot: {0}", ex.Message));
+                    }
+                    
                     Image<Bgr, byte> screen = new Image<Bgr, byte>(screenshot);
                     
                     // Perform template matching to search for the button
@@ -432,8 +459,8 @@ namespace RemoteDesktop
                     Point minLoc = new Point(), maxLoc = new Point();
                     CvInvoke.MinMaxLoc(result, ref minVal, ref maxVal, ref minLoc, ref maxLoc);
                     
-                    // Check if match confidence exceeds threshold
-                    if (maxVal > MATCH_THRESHOLD)
+                    // Check if match confidence meets or exceeds threshold
+                    if (maxVal >= threshold)
                     {
                         // Calculate the center of the button
                         int centerX = maxLoc.X + template.Width / 2;
@@ -444,7 +471,7 @@ namespace RemoteDesktop
                     }
                     else
                     {
-                        Console.WriteLine(string.Format("Button not found (confidence: {0:F2}, threshold: {1:F2})", maxVal, MATCH_THRESHOLD));
+                        Console.WriteLine(string.Format("Button not found (confidence: {0:F2}, threshold: {1:F2})", maxVal, threshold));
                         return Point.Empty;
                     }
                 }
@@ -455,12 +482,81 @@ namespace RemoteDesktop
                 return Point.Empty;
             }
         }
+        
+        /// <summary>
+        /// Wait for button to return after clicking (monitors acquisition completion).
+        /// </summary>
+        /// <param name="buttonPath">Path to button template image</param>
+        /// <param name="imageName">Name of button image for logging</param>
+        /// <param name="timeoutSeconds">Maximum time to wait in seconds</param>
+        /// <param name="confidence">Confidence threshold for button detection (0.0-1.0)</param>
+        private void WaitForButtonReturn(string buttonPath, string imageName, int timeoutSeconds, double confidence)
+        {
+            Console.WriteLine(string.Format("Monitoring button return for up to {0} seconds...", timeoutSeconds));
+            
+            // Initial delay to let UI update (button gets greyed/disabled)
+            Thread.Sleep(500);
+            
+            DateTime startTime = DateTime.Now;
+            int pollIntervalMs = 200; // Check every 200ms
+            int maxAttempts = (timeoutSeconds * 1000) / pollIntervalMs;
+            
+            for (int i = 0; i < maxAttempts; i++)
+            {
+                Point btn = FindButton(buttonPath, confidence);
+                
+                if (btn != Point.Empty)
+                {
+                    // Button is back - acquisition complete
+                    double elapsedSeconds = (DateTime.Now - startTime).TotalSeconds;
+                    Console.WriteLine(string.Format("Button returned after {0:F1} seconds - acquisition complete", elapsedSeconds));
+                    
+                    UpdateResponse(new Dictionary<string, object> 
+                    { 
+                        { "status", "complete" },
+                        { "action", "find_and_click" },
+                        { "image", imageName },
+                        { "duration_seconds", Math.Round(elapsedSeconds, 1) }
+                    });
+                    return;
+                }
+                
+                Thread.Sleep(pollIntervalMs);
+            }
+            
+            // Timeout reached
+            double timeoutElapsed = (DateTime.Now - startTime).TotalSeconds;
+            Console.WriteLine(string.Format("Button did not return within {0} seconds - timeout", timeoutElapsed));
+            
+            UpdateResponse(new Dictionary<string, object> 
+            { 
+                { "status", "timeout" },
+                { "action", "find_and_click" },
+                { "image", imageName },
+                { "waited_seconds", Math.Round(timeoutElapsed, 1) },
+                { "error", string.Format("Button did not return within {0} seconds", timeoutSeconds) }
+            });
+        }
     }
 
     class Program
     {
+        // Win32 API for DPI awareness
+        [DllImport("user32.dll")]
+        private static extern bool SetProcessDPIAware();
+        
         static void Main(string[] args)
         {
+            // Enable DPI awareness to get true screen resolution
+            try
+            {
+                SetProcessDPIAware();
+            }
+            catch
+            {
+                // Ignore if not supported (older Windows versions)
+            }
+            
             Console.WriteLine("=== Remote Desktop Server for Windows 7 ===");
             Console.WriteLine("Compatible with Python remote desktop client");
             Console.WriteLine();

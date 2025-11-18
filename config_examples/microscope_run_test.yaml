@@ -12,7 +12,8 @@ run:
   # Template matching version (EmguCV now installed!)
   # Place button screenshots in the buttons/ folder next to the C# server
   # The server will find and click the button automatically
-  - microscope: Run1_start
+  # Default confidence: 0.98 (use 'confidence: 0.95' to lower threshold if needed)
+  - microscope: Run1_start_W10
   - wait: 2
   
   # Alternative: coordinate-based clicking (if template matching fails)

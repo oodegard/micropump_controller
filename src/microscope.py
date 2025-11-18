@@ -122,7 +122,7 @@ class Microscope:
             with open(self.command_file, 'w') as f:
                 json.dump(command, f)
             
-            # Wait for response (C# server monitors file every 100ms)
+            # Wait for initial response (C# server monitors file every 10ms)
             timeout = 5.0
             start_time = time.time()
             while time.time() - start_time < timeout:
@@ -130,11 +130,27 @@ class Microscope:
                     with open(self.response_file, 'r') as f:
                         response = json.load(f)
                     
-                    # C# server uses "status": "ok" or "status": "error"
-                    if response.get("status") == "ok":
+                    status = response.get("status")
+                    
+                    # Handle different response statuses
+                    if status == "ok":
                         return True
-                    elif response.get("status") == "error":
+                    elif status == "clicked":
+                        # Button clicked, now wait for completion monitoring
+                        print(f"  Button clicked at ({response.get('x')}, {response.get('y')})")
+                        return self._wait_for_completion()
+                    elif status == "error":
                         self.last_error = response.get("error", "Unknown error")
+                        return False
+                    elif status == "complete":
+                        # Already complete (rare race condition)
+                        duration = response.get("duration_seconds", 0)
+                        print(f"  Acquisition completed in {duration:.1f}s")
+                        return True
+                    elif status == "timeout":
+                        waited = response.get("waited_seconds", 0)
+                        self.last_error = f"Button did not return after {waited:.1f}s"
+                        print(f"  [WARN] {self.last_error}")
                         return False
                 
                 time.sleep(0.1)
@@ -146,7 +162,53 @@ class Microscope:
             self.last_error = f"Command failed: {e}"
             return False
     
-    def run(self, image_path: str | dict = "run") -> bool:
+    def _wait_for_completion(self) -> bool:
+        """
+        Wait for microscope acquisition to complete after button clicked.
+        Monitors response.json for status change to "complete" or "timeout".
+        
+        Returns:
+            bool: True if acquisition completed successfully
+        """
+        # Long timeout for acquisition - server handles the actual monitoring
+        max_wait = 330.0  # Slightly longer than server's 300s default
+        start_time = time.time()
+        last_status = "clicked"
+        
+        print(f"  Waiting for acquisition to complete (max {max_wait:.0f}s)...")
+        
+        while time.time() - start_time < max_wait:
+            if self.response_file.exists():
+                try:
+                    with open(self.response_file, 'r') as f:
+                        response = json.load(f)
+                    
+                    status = response.get("status")
+                    
+                    if status == "complete":
+                        duration = response.get("duration_seconds", 0)
+                        print(f"  Acquisition completed in {duration:.1f}s")
+                        return True
+                    elif status == "timeout":
+                        waited = response.get("waited_seconds", 0)
+                        self.last_error = f"Server timeout: button did not return after {waited:.1f}s"
+                        print(f"  [WARN] {self.last_error}")
+                        return False
+                    elif status != last_status:
+                        # Status changed to something unexpected
+                        print(f"  [DEBUG] Status changed to: {status}")
+                        last_status = status
+                        
+                except json.JSONDecodeError:
+                    # File being written, try again
+                    pass
+            
+            time.sleep(0.5)  # Poll every 500ms
+        
+        self.last_error = "Client timeout waiting for completion"
+        return False
+    
+    def run(self, image_path: str | dict = "run", confidence: Optional[float] = None, timeout: Optional[int] = None, wait_complete: bool = True) -> bool:
         """
         Find and click the Run button using template matching or coordinates.
         
@@ -155,6 +217,9 @@ class Microscope:
         Args:
             image_path: Name of button image file (e.g., "Run1_start", "stop", "capture")
                        OR dict with coordinate click: {"action": "click", "x": 100, "y": 200}
+            confidence: Template matching threshold (0.0-1.0). Default: 1.0 (perfect match)
+            timeout: Max seconds to wait for button return after click. Default: 300
+            wait_complete: Whether to wait for acquisition completion. Default: True
         
         Returns:
             bool: True if button found and clicked successfully
@@ -170,7 +235,17 @@ class Microscope:
         # Handle template matching (string format)
         # Remove .png extension if provided (will be added by server)
         image_name = image_path.replace(".png", "")
-        return self._send_command("find_and_click", image=image_name)
+        
+        # Build kwargs for command
+        kwargs = {"image": image_name}
+        if confidence is not None:
+            kwargs["confidence"] = confidence
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        if not wait_complete:
+            kwargs["wait_complete"] = False
+            
+        return self._send_command("find_and_click", **kwargs)
     
     def wait_done(self, timeout: float = 300.0) -> bool:
         """
