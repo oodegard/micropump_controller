@@ -604,6 +604,20 @@ def run_sequence(
                         else:
                             print(f"    [MICROSCOPE] ✗ Acquisition failed or timed out")
                         continue
+                    
+                    # Handle microscope command (generic button click)
+                    if "microscope" in substep:
+                        if not microscope:
+                            print("    [WARN] Microscope requested but not initialized")
+                            continue
+                        action = substep["microscope"]
+                        print(f"    [MICROSCOPE] Finding and clicking button: {action}")
+                        success = microscope.run(image_path=action)
+                        if success:
+                            print(f"    [MICROSCOPE] ✓ Button '{action}' clicked")
+                        else:
+                            print(f"    [MICROSCOPE] ✗ Button '{action}' not found or click failed: {microscope.get_error_details()}")
+                        continue
             
             print(f"[LOOP] Completed")
             continue
