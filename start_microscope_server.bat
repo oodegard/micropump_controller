@@ -1,18 +1,18 @@
 @echo off
-REM Remote Desktop Server for Windows 7 - Microscope Control
+REM Microscope Control Server for Windows 7
 REM Runs directly from the C# build output folder
 
-echo === Remote Desktop Server for Windows 7 ===
+echo === Microscope Control Server for Windows 7 ===
 echo.
 
 REM Get the directory where this batch file is located (repo root)
 set "REPO_ROOT=%~dp0"
 
 REM Path to the built executable (runs from build output directly)
-set "SERVER_EXE=%REPO_ROOT%remote_desktop_server_cs\bin\Release\RemoteDesktopServer.exe"
+set "SERVER_EXE=%REPO_ROOT%microscope_server\bin\Release\MicroscopeServer.exe"
 
 REM Default shared folder for file-based communication
-REM Now using the entire repo share instead of separate RemoteDesktopServer_Win7 share
+REM Using the entire repo share
 set "DEFAULT_FOLDER=\\BIPHUB\micropump_controller"
 
 REM If no argument provided, use default folder
@@ -28,7 +28,7 @@ if not exist "%SERVER_EXE%" (
     echo   %SERVER_EXE%
     echo.
     echo Please build the C# project first:
-    echo   C:\Windows\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe remote_desktop_server_cs\RemoteDesktopServer.csproj /p:Configuration=Release
+    echo   C:\Windows\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe microscope_server\MicroscopeServer.csproj /p:Configuration=Release
     echo.
     pause
     exit /b 1

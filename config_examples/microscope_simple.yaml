@@ -6,7 +6,7 @@
 # 1. Find the Run button coordinates on your microscope software
 # 2. Take a screenshot and measure the x,y position
 # 3. Update DEFAULT_RUN_X and DEFAULT_RUN_Y in src/microscope.py
-# 4. Make sure C# RemoteDesktopServer.exe is running on Windows 7 PC
+# 4. Make sure C# MicroscopeServer.exe is running on Windows 7 PC
 
 # Pump profiles
 pump settings:

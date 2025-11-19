@@ -774,14 +774,14 @@ def main(argv: list[str] | None = None) -> int:
 
     microscope = None
     if microscope_enabled:
-        # File-based remote desktop via C# server on Windows 7
+        # File-based microscope control via C# server on Windows 7
         if dry_run:
             from src.microscope import MockMicroscope
             print(f"[INFO] Using MOCK microscope (dry-run mode)")
             microscope = MockMicroscope()
         else:
             from src.microscope import Microscope
-            print(f"[INFO] Initializing microscope remote desktop controller...")
+            print(f"[INFO] Initializing microscope controller...")
             
             microscope = Microscope()
             if not microscope.initialize():

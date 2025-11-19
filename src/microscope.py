@@ -1,8 +1,8 @@
 """
-Microscope Remote Desktop Control - File-based communication with C# server.
+Microscope Control - File-based communication with C# server.
 
 This module provides microscope control via file-based communication with the
-Windows 7 C# remote desktop server. Commands are sent via JSON files in a shared folder.
+Windows 7 C# microscope server. Commands are sent via JSON files in a shared folder.
 
 Usage in YAML config:
     microscope:
@@ -28,13 +28,13 @@ import time
 
 class Microscope:
     """
-    File-based remote desktop microscope controller.
+    File-based microscope controller.
     
-    Communicates with C# RemoteDesktopServer.exe via shared folder.
+    Communicates with C# MicroscopeServer.exe via shared folder.
     The server monitors command.json and updates response.json.
     
     Configuration:
-        - shared_folder: Network path to shared folder (e.g., r"\\\\MICROSCOPE-PC\\RemoteDesktop")
+        - shared_folder: Network path to shared folder (e.g., r"\\\\MICROSCOPE-PC\\SharedFolder")
         - run_button_x, run_button_y: Coordinates of Run button
         - running_button_x, running_button_y: Coordinates of button when acquisition is running
     """
@@ -350,8 +350,8 @@ class Microscope:
             )
         elif "Timeout" in self.last_error:
             return (
-                "1. Check C# RemoteDesktopServer.exe is running\n"
-                "2. Verify it's monitoring C:\\RemoteDesktop folder\n"
+                "1. Check C# MicroscopeServer.exe is running\n"
+                "2. Verify it's monitoring the shared folder\n"
                 "3. Check server console for errors"
             )
         else:
