@@ -1,1 +1,1 @@
-{"status":"complete","action":"find_and_click","image":"Fusion_Acquire.png","duration_seconds":10.7}
+{"status":"error","error":"Button image not found or match failed: Fusion_Acquire.png"}

@@ -1,0 +1,30 @@
+
+pump settings:
+  normal speed:
+    waveform: RECT      # Shape of the pump signal (e.g., RECT = rectangular)
+    voltage: 80        # Voltage to apply to the pump (in Volts)
+    freq: 80            # Frequency of the pump signal (in Hz)
+
+required hardware:
+  pump: true             # Set to true if a pump is connected
+  valve: true            # Set to true if a valve is connected
+  pipetting robot: true # TODO: add support for pipetting robot control
+  microscope: true       # Audio-based microscope trigger via 1000 Hz signal
+run:
+
+  - microscope: Fusion_Acquire # Take image
+    confidence: 0.95
+
+  - microscope: Fusion_Snap # Take image
+    confidence: 0.95
+
+  - pump_off: 0          # Turn off the pump (the value '0' is ignored)
+
+# Summary:
+# This example runs the pump for 2 minutes, switching the valve on and off every 5 seconds.
+# Then it repeats the process with a slower pump profile.
+#
+# To customize:
+# - Change the 'voltage' or 'freq' values in 'pump settings' to change the liquid flow rate.
+# - Change the 'wait' values for pump or valve steps.
+# - Add more steps to the 'run' sequence as needed.

@@ -113,6 +113,9 @@ class Microscope:
             bool: True if command sent and response received successfully
         """
         try:
+            # Check if we should wait for completion (used for async microscope operations)
+            wait_complete = kwargs.get("wait_complete", True)
+            
             # Clear old response file
             if self.response_file.exists():
                 self.response_file.unlink()
@@ -123,24 +126,34 @@ class Microscope:
                 json.dump(command, f)
             
             # Wait for initial response (C# server monitors file every 10ms)
-            timeout = 10.0  # Increased timeout to handle slower file operations
+            # Be patient waiting for file to appear (network delays, server busy)
+            # but poll frequently once it exists
+            timeout = 10.0  # Generous timeout for file creation
             start_time = time.time()
+            response_appeared = False
+            
             while time.time() - start_time < timeout:
                 if self.response_file.exists():
                     try:
                         # Small delay to ensure file write is complete
-                        time.sleep(0.05)
+                        time.sleep(0.02)
                         with open(self.response_file, 'r') as f:
                             response = json.load(f)
                         
+                        response_appeared = True
                         status = response.get("status")
                         
                         # Handle different response statuses
                         if status == "ok":
                             return True
                         elif status == "clicked":
-                            # Button clicked, now wait for completion monitoring
+                            # Button clicked
                             print(f"  Button clicked at ({response.get('x')}, {response.get('y')})")
+                            # If wait_complete is False, return immediately after click
+                            if not wait_complete:
+                                print(f"  Continuing without waiting for completion")
+                                return True
+                            # Otherwise wait for acquisition to complete
                             return self._wait_for_completion()
                         elif status == "error":
                             self.last_error = response.get("error", "Unknown error")
@@ -159,9 +172,21 @@ class Microscope:
                         # File not ready yet, continue waiting
                         pass
                 
-                time.sleep(0.1)
+                # Adaptive polling for file appearance
+                elapsed = time.time() - start_time
+                if elapsed < 1:
+                    time.sleep(0.02)  # Very fast polling initially (50 Hz)
+                elif elapsed < 3:
+                    time.sleep(0.05)  # Fast polling (20 Hz)
+                else:
+                    time.sleep(0.1)   # Medium polling (10 Hz)
             
-            self.last_error = "Timeout waiting for server response"
+            if not response_appeared:
+                self.last_error = "Timeout waiting for server response"
+                return False
+            
+            # If we got here without returning, something unexpected happened
+            self.last_error = "Unexpected response handling"
             return False
             
         except Exception as e:
@@ -209,7 +234,16 @@ class Microscope:
                     # File being written, try again
                     pass
             
-            time.sleep(0.5)  # Poll every 500ms
+            # Adaptive polling: check frequently at start, then slow down
+            elapsed = time.time() - start_time
+            if elapsed < 3:
+                time.sleep(0.02)  # Very fast polling for first 3 seconds (50 Hz)
+            elif elapsed < 10:
+                time.sleep(0.05)  # Fast polling for next 7 seconds (20 Hz)
+            elif elapsed < 30:
+                time.sleep(0.1)   # Medium polling for next 20 seconds (10 Hz)
+            else:
+                time.sleep(0.2)   # Slower polling after 30 seconds (5 Hz)
         
         self.last_error = "Client timeout waiting for completion"
         return False
