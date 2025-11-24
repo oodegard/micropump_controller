@@ -34,7 +34,7 @@ class Microscope:
     The server monitors command.json and updates response.json.
     
     Configuration:
-        - shared_folder: Network path to shared folder (e.g., r"\\\\MICROSCOPE-PC\\SharedFolder")
+        - shared_folder: Network path to shared folder (e.g., r"\\\\MICROSCOPE-PC\\RemoteDesktop")
         - run_button_x, run_button_y: Coordinates of Run button
         - running_button_x, running_button_y: Coordinates of button when acquisition is running
     """
@@ -350,8 +350,8 @@ class Microscope:
             )
         elif "Timeout" in self.last_error:
             return (
-                "1. Check C# MicroscopeServer.exe is running\n"
-                "2. Verify it's monitoring the shared folder\n"
+                "1. Check C# RemoteDesktopServer.exe is running\n"
+                "2. Verify it's monitoring C:\\RemoteDesktop folder\n"
                 "3. Check server console for errors"
             )
         else:

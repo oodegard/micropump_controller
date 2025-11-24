@@ -2,7 +2,7 @@
 
 ## ✓ Installation Complete
 
-EmguCV 3.1.0.1 has been successfully installed and integrated into the Remote Desktop Server.
+EmguCV 3.1.0.1 has been successfully installed and integrated into the Microscope Control Server.
 
 ## What Was Installed
 

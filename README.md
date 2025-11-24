@@ -27,7 +27,7 @@ uv run python run_protocol_cli.py --dry-run config_examples/continuous_switching
 - **Pump Control**: Bartels micropumps (Windows native or WSL)
 - **Valve Control**: Arduino-based solenoid valves via serial
 - **Protocol Automation**: YAML-based sequences with timing
-- **Microscope Automation**: File-based control for Windows 7 microscopes
+- **Microscope Automation**: Remote desktop control for Windows 7 microscopes
 - **Port Auto-Detection**: Automatic USB device discovery
 
 ## Project Structure
@@ -37,29 +37,30 @@ src/
 ├── pump_win.py          # Windows native pump controller
 ├── pump_wsl.py          # WSL-based pump controller  
 ├── valve.py             # Arduino valve controller
-├── microscope.py        # Microscope control via file-based communication
+├── microscope.py        # Remote desktop microscope control
 ├── stage3d.py           # 3D stage control
 └── resolve_ports.py     # Automatic port detection
 
 config_examples/         # Example protocol YAML files
-microscope_server/       # C# server for Windows 7 microscopes
+dist/
+└── RemoteDesktopServer_Win7/  # C# server for Windows 7 microscopes
 via_wsl/                # WSL USB attachment utilities
-Legacy/                 # Old implementations (audio/ethernet control)
+Legacy/                 # Old implementations (Python remote desktop, audio control)
 ```
 
-## Microscope Control
+## Microscope Remote Control
 
 **Windows 7 Compatible Solution** - Uses file-based communication via network share.
 
 ### Server Setup (Windows 7 Microscope PC)
 
-1. Build the C# server: `C:\Windows\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe microscope_server\MicroscopeServer.csproj /p:Configuration=Release`
-2. Or use pre-built `microscope_server\bin\Release\MicroscopeServer.exe`
-3. On the microscope PC, run the server with: `MicroscopeServer.exe \\BIPHUB\micropump_controller`
-4. Server monitors the shared folder for commands
-5. Place button images in `buttons/` subfolder of the shared location
+1. Copy `dist/RemoteDesktopServer_Win7` to Windows 7
+2. Run `start_server.bat` as Administrator
+3. Server creates `C:\RemoteDesktop` and monitors for commands
+4. Share the folder: Right-click → Properties → Sharing → Advanced Sharing
+5. Network path will be `\\MICROSCOPE-PC\RemoteDesktop`
 
-See `microscope_server/` folder for C# source and build instructions.
+See `dist/RemoteDesktopServer_Win7/QUICKSTART_WIN7.md` for detailed setup.
 
 ### Client Usage (Controller PC)
 
@@ -67,7 +68,7 @@ See `microscope_server/` folder for C# source and build instructions.
 from src.microscope import Microscope
 
 # Initialize with network share
-microscope = Microscope(shared_folder=r"\\BIPHUB\micropump_controller")
+microscope = Microscope(shared_folder=r"\\MICROSCOPE-PC\RemoteDesktop")
 microscope.initialize()
 
 # Control microscope
@@ -156,10 +157,10 @@ uv run python -c "from src.pump_wsl import Pump_wsl; p = Pump_wsl(); p.initializ
 ## Documentation
 
 - **AGENTS.md** - AI instructions and architecture patterns
-- **microscope_server/** - C# microscope server source code
-  - `MicroscopeServer.cs` - Main server implementation
-  - `MicroscopeServer.csproj` - Build configuration
-  - `EMGUCV_SETUP.md` - OpenCV setup instructions
+- **dist/RemoteDesktopServer_Win7/** - Microscope server documentation
+  - `README.md` - Full server documentation
+  - `QUICKSTART_WIN7.md` - Step-by-step setup
+  - `TROUBLESHOOTING_WIN7.md` - Problem solving
 - **config_examples/README.md** - Protocol configuration guide
 
 ## Legacy Code
