@@ -40,3 +40,7 @@ Thumbs.db
 /hardware/drivers/Bartels_controller_XU7_USB_Driver_2.08.30/*.pfx
 /hardware/drivers/Bartels_controller_XU7_USB_Driver_2.08.30/*.log
 *.pyc
+/microscope_server/bin
+/microscope_server/obj
+status/response.json
+/status
