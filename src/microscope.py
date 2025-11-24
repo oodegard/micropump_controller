@@ -123,35 +123,41 @@ class Microscope:
                 json.dump(command, f)
             
             # Wait for initial response (C# server monitors file every 10ms)
-            timeout = 5.0
+            timeout = 10.0  # Increased timeout to handle slower file operations
             start_time = time.time()
             while time.time() - start_time < timeout:
                 if self.response_file.exists():
-                    with open(self.response_file, 'r') as f:
-                        response = json.load(f)
-                    
-                    status = response.get("status")
-                    
-                    # Handle different response statuses
-                    if status == "ok":
-                        return True
-                    elif status == "clicked":
-                        # Button clicked, now wait for completion monitoring
-                        print(f"  Button clicked at ({response.get('x')}, {response.get('y')})")
-                        return self._wait_for_completion()
-                    elif status == "error":
-                        self.last_error = response.get("error", "Unknown error")
-                        return False
-                    elif status == "complete":
-                        # Already complete (rare race condition)
-                        duration = response.get("duration_seconds", 0)
-                        print(f"  Acquisition completed in {duration:.1f}s")
-                        return True
-                    elif status == "timeout":
-                        waited = response.get("waited_seconds", 0)
-                        self.last_error = f"Button did not return after {waited:.1f}s"
-                        print(f"  [WARN] {self.last_error}")
-                        return False
+                    try:
+                        # Small delay to ensure file write is complete
+                        time.sleep(0.05)
+                        with open(self.response_file, 'r') as f:
+                            response = json.load(f)
+                        
+                        status = response.get("status")
+                        
+                        # Handle different response statuses
+                        if status == "ok":
+                            return True
+                        elif status == "clicked":
+                            # Button clicked, now wait for completion monitoring
+                            print(f"  Button clicked at ({response.get('x')}, {response.get('y')})")
+                            return self._wait_for_completion()
+                        elif status == "error":
+                            self.last_error = response.get("error", "Unknown error")
+                            return False
+                        elif status == "complete":
+                            # Already complete (rare race condition)
+                            duration = response.get("duration_seconds", 0)
+                            print(f"  Acquisition completed in {duration:.1f}s")
+                            return True
+                        elif status == "timeout":
+                            waited = response.get("waited_seconds", 0)
+                            self.last_error = f"Button did not return after {waited:.1f}s"
+                            print(f"  [WARN] {self.last_error}")
+                            return False
+                    except (json.JSONDecodeError, IOError):
+                        # File not ready yet, continue waiting
+                        pass
                 
                 time.sleep(0.1)
             

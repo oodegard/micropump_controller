@@ -19,14 +19,19 @@ run:
         - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
         - valve_on: 5   # Open valve for 10 seconds
         - pump_off: 0
-        - microscope: Run1_start_W10
-          confidencew: 0.95
+
+        - microscope: Fusion_Acquire # Take image
+          confidence: 0.95
         - valve_off: 5  # Close valve for 10 seconds
 
         - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
         - valve_off: 5  # Close valve for 10 seconds
-        - microscope: Run1_start_W10
-  
+        - pump_off: 0
+                
+        - microscope: Fusion_Acquire
+          confidence: 0.95  
+
+
   - pump_off: 0          # Turn off the pump (the value '0' is ignored)
 
 # Summary:

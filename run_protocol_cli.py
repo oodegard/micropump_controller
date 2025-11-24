@@ -565,7 +565,7 @@ def run_sequence(
                         profile_name = substep["pump_on"]
                         print(f"    [PUMP] START (profile '{profile_name}')")
                         try:
-                            pump.start()
+                            apply_pump_profile(pump, profile_name, pump_profiles, start=True)
                         except Exception as e:
                             print(f"      [WARN] Failed to start pump: {e}")
                         continue

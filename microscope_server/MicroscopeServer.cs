@@ -308,6 +308,9 @@ namespace MicroscopeServer
                 mouse_event(MOUSEEVENTF_LEFTUP, x, y, 0, 0);
             }
             
+            // Move mouse away from button to prevent hover effects changing appearance
+            Cursor.Position = new Point(0, 0);
+            
             Console.WriteLine(string.Format("Clicked at ({0}, {1}) - {2} button", x, y, button));
         }
 
