@@ -20,19 +20,12 @@ run:
   - loop:
       repeat: 10          # Number of times to repeat the sequence
       steps:
-        - valve_on: 5   # Open valve for 10 seconds
-        - pump_off: 0
-
-        - microscope: Fusion_Acquire # Take image
-          confidence: 0.95
-        - valve_off: 5  # Close valve for 10 seconds
-
-        - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
-        - valve_off: 5  # Close valve for 10 seconds
-        - pump_off: 0
-                
-        - microscope: Fusion_Acquire
-          confidence: 0.95  
+        # During the X seconds, repeat the following commands:
+        - valve_toggle: 0 # turn on valve to tube B    
+        - wait: 5       # Open the valve for 5 seconds
+        - valve_toggle: 0 # turn off valve - back to tube A
+        - wait: 5       # Close the valve for 5 seconds
+        # The valve will switch on and off every 5 seconds during the pump run
 
 
   - pump_off: 0          # Turn off the pump (the value '0' is ignored)

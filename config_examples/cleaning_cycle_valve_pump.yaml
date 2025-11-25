@@ -25,7 +25,7 @@ required hardware:
 run:
   # wash tube A 
   - pump_on: full flow
-  - wait: 1    # Keep pump running for 1 second
+  - wait: 10    # Keep pump running for 10 seconds
 
   # wash tube B
   - valve_toggle: 0 # turn on valve to tube B

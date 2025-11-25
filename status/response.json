@@ -1,1 +1,1 @@
-{"status":"error","error":"Button image not found or match failed: Fusion_Acquire.png"}
+{"status":"clicked","action":"find_and_click","image":"Fusion_Acquire.png","x":2558,"y":1359,"button":"left"}

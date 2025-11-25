@@ -1,0 +1,48 @@
+
+pump settings:
+  normal speed:
+    waveform: RECT      # Shape of the pump signal (e.g., RECT = rectangular)
+    voltage: 200        # Voltage to apply to the pump (in Volts)
+    freq: 200            # Frequency of the pump signal (in Hz)
+
+required hardware:
+  pump: true             # Set to true if a pump is connected
+  valve: true            # Set to true if a valve is connected
+  pipetting robot: true # TODO: add support for pipetting robot control
+  microscope: true       # Audio-based microscope trigger via 1000 Hz signal
+
+run:  
+  # Loop: Repeat valve switching 5 times (5 cycles × 40s = 200s total
+  - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
+  - wait: 10
+  - pump_off: 0
+
+  - loop:
+      repeat: 3          # Number of times to repeat the sequence
+      steps:
+        - microscope: Fusion_Acquire # Take image
+          confidence: 0.95
+
+
+  - valve_toggle: 0 # turn on valve to tube B      
+  - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
+  - wait: 10
+  - pump_off: 0
+
+  - loop:
+      repeat: 6          # Number of times to repeat the sequence
+      steps:
+        - microscope: Fusion_Acquire # Take image
+          confidence: 0.95
+
+
+  - valve_toggle: 0 # turn on valve to tube A    
+  - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
+  - wait: 10
+  - pump_off: 0
+
+  - loop:
+    repeat: 120          # Number of times to repeat the sequence
+    steps:
+      - microscope: Fusion_Acquire # Take image
+        confidence: 0.95

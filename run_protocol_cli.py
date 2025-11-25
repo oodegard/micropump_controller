@@ -551,6 +551,19 @@ def run_sequence(
                             interruptible_sleep(duration)
                         continue
                     
+                    # Handle valve_toggle
+                    if "valve_toggle" in substep:
+                        if not valve:
+                            sys.exit("Valve requested but not initialized.")
+                        print(f"    [VALVE] TOGGLE")
+                        try:
+                            resp = valve.toggle()
+                            if resp:
+                                print(f"      [VALVE RESP] {resp}")
+                        except Exception as e:
+                            print(f"      [WARN] Failed to toggle valve: {e}")
+                        continue
+                    
                     # Handle wait in loop
                     if "wait" in substep:
                         wait_s = float(substep["wait"])
@@ -623,8 +636,14 @@ def run_sequence(
                         else:
                             error_msg = microscope.get_error_details()
                             print(f"    [MICROSCOPE] [FAIL] Button '{action}' not found or click failed: {error_msg}")
-                            print("[ABORT] Cannot continue without image acquisition - stopping protocol")
-                            raise RuntimeError(f"Microscope button click failed: {error_msg}")
+                            
+                            # If wait_complete is False, we're running async - just warn and continue
+                            if not wait_complete:
+                                print("    [WARN] Microscope operation failed, but continuing protocol since wait_complete=false")
+                            else:
+                                # Critical failure - can't proceed without microscope
+                                print("[ABORT] Cannot continue without image acquisition - stopping protocol")
+                                raise RuntimeError(f"Microscope button click failed: {error_msg}")
                         continue
             
             print(f"[LOOP] Completed")
@@ -683,8 +702,16 @@ def run_sequence(
                 else:
                     error_msg = microscope.get_error_details()
                     print(f"[MICROSCOPE] [FAIL] Button '{action}' not found or click failed: {error_msg}")
-                    print("[ABORT] Cannot continue without image acquisition - stopping protocol")
-                    raise RuntimeError(f"Microscope button click failed: {error_msg}")
+                    
+                    # If wait_complete is False, we're running async - just warn and continue
+                    # The user wants the pump to keep running even if microscope has issues
+                    if not wait_complete:
+                        print("[WARN] Microscope operation failed, but continuing protocol since wait_complete=false")
+                        print("       The pump will continue changing buffers during acquisition")
+                    else:
+                        # Critical failure - can't proceed without microscope
+                        print("[ABORT] Cannot continue without image acquisition - stopping protocol")
+                        raise RuntimeError(f"Microscope button click failed: {error_msg}")
             continue
         
         # Legacy: Microscope acquire command (alias for microscope: run)
