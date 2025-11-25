@@ -30,7 +30,7 @@ run:
   - pump_off: 0
 
   - loop:
-      repeat: 6          # Number of times to repeat the sequence
+      repeat: 20          # Number of times to repeat the sequence
       steps:
         - microscope: Fusion_Acquire # Take image
           confidence: 0.95
@@ -42,7 +42,7 @@ run:
   - pump_off: 0
 
   - loop:
-    repeat: 120          # Number of times to repeat the sequence
-    steps:
-      - microscope: Fusion_Acquire # Take image
-        confidence: 0.95
+      repeat: 120          # Number of times to repeat the sequence
+      steps:
+        - microscope: Fusion_Acquire # Take image
+          confidence: 0.95

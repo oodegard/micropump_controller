@@ -284,7 +284,13 @@ def run_sequence(
     microscope=None,
     dry_run: bool = False,
 ):
+    global STOP_REQUESTED
     for idx, step in enumerate(config.get("run", [])):
+        # Check for interrupt at the start of each step
+        if STOP_REQUESTED:
+            print(f"\n[INTERRUPT] Stop requested before step {idx+1} - aborting sequence")
+            raise KeyboardInterrupt()
+        
         if not isinstance(step, dict):
             print(f"[WARN] Step ignored (not a dict): {step}")
             continue
@@ -521,8 +527,18 @@ def run_sequence(
             
             print(f"[LOOP] Repeating {len(steps)} steps {repeat} times")
             for iteration in range(repeat):
+                # Check for interrupt at the start of each loop iteration
+                if STOP_REQUESTED:
+                    print(f"\n[INTERRUPT] Stop requested during loop iteration {iteration+1}/{repeat} - aborting loop")
+                    raise KeyboardInterrupt()
+                
                 print(f"  [LOOP ITERATION {iteration + 1}/{repeat}]")
                 for substep in steps:
+                    # Check for interrupt between each substep
+                    if STOP_REQUESTED:
+                        print(f"\n[INTERRUPT] Stop requested during loop substep - aborting loop")
+                        raise KeyboardInterrupt()
+                    
                     if not isinstance(substep, dict):
                         continue
                     
@@ -822,23 +838,40 @@ def main(argv: list[str] | None = None) -> int:
     try:
         run_sequence(config, pump, valve, pump_profiles, microscope=microscope, dry_run=dry_run)
     except KeyboardInterrupt:
-        print("\n[INTERRUPT] Caught Ctrl+C - shutting down devices...")
-        try:
-            if pump:
+        print("\n" + "="*60)
+        print("[INTERRUPT] Ctrl+C detected - initiating emergency shutdown")
+        print("="*60)
+        
+        # Stop pump immediately
+        if pump:
+            try:
+                print("[SHUTDOWN] Stopping pump...")
                 pump.stop()
-        except Exception:
-            pass
-        try:
-            if valve:
+                print("[SHUTDOWN] ✓ Pump stopped")
+            except Exception as e:
+                print(f"[SHUTDOWN] ✗ Pump stop failed: {e}")
+        
+        # Turn off valve
+        if valve:
+            try:
+                print("[SHUTDOWN] Turning off valve...")
                 valve.off()
-        except Exception:
-            pass
-        try:
-            if microscope:
+                print("[SHUTDOWN] ✓ Valve off")
+            except Exception as e:
+                print(f"[SHUTDOWN] ✗ Valve off failed: {e}")
+        
+        # Close microscope connection
+        if microscope:
+            try:
+                print("[SHUTDOWN] Closing microscope connection...")
                 microscope.close()
-        except Exception:
-            pass
-        print("[INFO] Shutdown complete")
+                print("[SHUTDOWN] ✓ Microscope closed")
+            except Exception as e:
+                print(f"[SHUTDOWN] ✗ Microscope close failed: {e}")
+        
+        print("="*60)
+        print("[SHUTDOWN] Emergency shutdown complete - protocol aborted")
+        print("="*60)
         return 130  # Standard exit code for Ctrl+C
     finally:
         if pump:
