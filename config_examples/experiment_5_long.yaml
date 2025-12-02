@@ -13,6 +13,8 @@ required hardware:
 
 run:  
   # Loop: Repeat valve switching 5 times (5 cycles × 40s = 200s total
+  
+  - valve_off: 0 
   - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
   - wait: 10
   - pump_off: 0
@@ -24,7 +26,7 @@ run:
           confidence: 0.95
 
 
-  - valve_toggle: 0 # turn on valve to tube B      
+  - valve_on: 0 # turn on valve to tube B      
   - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
   - wait: 10
   - pump_off: 0
@@ -36,7 +38,7 @@ run:
           confidence: 0.95
 
 
-  - valve_toggle: 0 # turn on valve to tube A    
+  - valve_off: 0 
   - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
   - wait: 10
   - pump_off: 0
