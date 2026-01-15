@@ -23,14 +23,20 @@ required hardware:
   microscope: false
 
 run:
-  # wash tube A 
-  - pump_on: full flow
-  - wait: 10    # Keep pump running for 10 seconds
+  - pinch_valve_on: 0
+
 
   # wash tube B
   - valve_toggle: 0 # turn on valve to tube B
-  - wait: 10    # Keep pump running for 10 seconds
+  - pump_on: full flow
+  - wait: 30    # Keep pump running for x seconds
   - valve_toggle: 0 # turn off valve - back to tube A
-  
+
+  # wash tube A 
+
+  - wait: 30    # Keep pump running for x seconds
+
+
   # stop pump
   - pump_off: 0     # Value ignored; serves as an action trigger
+  - pinch_valve_off: 0

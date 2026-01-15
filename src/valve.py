@@ -55,7 +55,9 @@ class ValveController:
         try:
             self.ser.reset_input_buffer()
             self.ser.reset_output_buffer()
-            line = (command.strip() + "\n").encode("ascii", errors="ignore")
+            # Prefix with VALVE for multi-relay Arduino firmware
+            full_command = f"VALVE {command.strip()}"
+            line = (full_command + "\n").encode("ascii", errors="ignore")
             self.ser.write(line)
             self.ser.flush()
             resp = self.ser.readline().decode("ascii", errors="ignore").strip()

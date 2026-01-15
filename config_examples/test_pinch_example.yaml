@@ -1,0 +1,30 @@
+# Pinch valve functional test
+# Usage (PowerShell):
+#   $env:VALVE_TYPE = "pinch"    # use PinchValveController
+#   $env:PINCH_VALVE_PIN = "9"   # optional; firmware should already use pin 9
+#   uv run python run_protocol_cli.py config_examples\test_pinch_example.yaml
+#
+# Note: Valve port is auto-detected via ARDUINO_VID/ARDUINO_PID from .env.
+# No manual VALVE_PORT assignment needed.
+
+required hardware:
+  pump: false
+  pinch_valve: true
+  microscope: false
+
+run:
+  # 1) Open flow (pinch valve ON), wait 2s, then close (OFF)
+  - pinch_valve_on: 0
+  - wait: 2
+  - pinch_valve_off: 0
+  - wait: 4
+
+  # 2) Exercise toggle twice with short waits
+  - pinch_valve_toggle: 0
+  - wait: 4
+  - pinch_valve_toggle: 0
+  - wait: 4
+
+  # 3) Pulse the pinch valve for 0.15 s (seconds; emulated in software)
+  - pinch_valve_pulse: 6
+  - wait: 4

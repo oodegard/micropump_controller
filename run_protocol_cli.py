@@ -52,7 +52,7 @@ commands:
         - valve_off: 0
         - valve_toggle: 0
         - valve_state: 0           # queries and prints state
-        - valve_pulse: 150         # pulse N ms (pump must support; Arduino handles it)
+        - valve_pulse: 0.15        # pulse N seconds (emulated: ON, wait, OFF)
 
         # Mixed timed block (unchanged semantics):
         - wait: 20
@@ -79,6 +79,8 @@ import os
 import sys
 import time
 import signal
+import serial
+import serial.tools.list_ports
 from typing import Any, Dict, List
 
 import yaml
@@ -91,7 +93,8 @@ except ImportError:  # pragma: no cover - optional dependency
 # Local imports - simplified structure with single files per device
 from src.pump_win import Pump_win
 from src.pump_wsl import Pump_wsl
-from src.valve import ValveController
+from src.dual_valve import DualValveController
+from src.messagebox import MessageBox
 
 
 class MockPump:
@@ -221,16 +224,38 @@ def interruptible_sleep(total: float, tick: float = 0.1) -> None:
 
 def resolve_ports_from_env(prefer_detection: bool = True) -> dict:
     """Determine ports using layered strategy:
-    1. Explicit env overrides (PUMP_PORT / VALVE_SERIAL_PORT)
-    2. VID/PID detection via get_port_by_id('pump'/'arduino') when available
-    3. Fallback defaults (COM4 / COM5)
+    1. Explicit env overrides (PUMP_PORT / VALVE_SERIAL_PORT / VALVE_PORT)
+    2. VID/PID detection via ARDUINO_VID/ARDUINO_PID from .env
+    3. Description-based detection (Arduino keywords)
+    4. Fallback defaults (COM4 / COM5)
     """
     load_env_once()
     pump_port_env = os.getenv("PUMP_PORT") or os.getenv("PUMP_COM")
-    valve_port_env = os.getenv("VALVE_SERIAL_PORT")
+    valve_port_env = os.getenv("VALVE_SERIAL_PORT") or os.getenv("VALVE_PORT")
 
     detected_pump = None
     detected_valve = None
+
+    # Try VID/PID-based detection for valve (Arduino)
+    if not valve_port_env:
+        try:
+            arduino_vid = int(os.getenv("ARDUINO_VID", "0"))
+            arduino_pid = int(os.getenv("ARDUINO_PID", "0"))
+            if arduino_vid > 0 and arduino_pid > 0:
+                detected_valve = _find_port_by_vid_pid(arduino_vid, arduino_pid)
+        except (ValueError, Exception):
+            pass
+
+        # Fallback to description-based detection if VID/PID didn't work
+        if not detected_valve:
+            arduino_keywords = ["arduino", "ch340", "wchusbserial", "silicon labs", "cp210x"]
+            for keyword in arduino_keywords:
+                try:
+                    detected_valve = _find_port_by_description(keyword)
+                    if detected_valve:
+                        break
+                except Exception:
+                    continue
 
     pump_port = pump_port_env or detected_pump or "COM4"
     valve_port = valve_port_env or detected_valve or "COM5"
@@ -244,6 +269,24 @@ def resolve_ports_from_env(prefer_detection: bool = True) -> dict:
         "pump_from_env": bool(pump_port_env is not None),
         "valve_from_env": bool(valve_port_env is not None),
     }
+
+
+def _find_port_by_vid_pid(vid: int, pid: int) -> str:
+    """Find serial port by VID/PID; raises Exception if not found."""
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        if port.vid == vid and port.pid == pid:
+            return port.device
+    raise Exception(f"No device found with VID={vid:04X} and PID={pid:04X}")
+
+
+def _find_port_by_description(keyword: str) -> str:
+    """Find serial port by keyword in description; raises Exception if not found."""
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        if keyword.lower() in port.description.lower():
+            return port.device
+    raise Exception(f"No device found with keyword '{keyword}' in description")
 
 
 def apply_pump_profile(pump, name: str, profiles: Dict[str, Any], *, start: bool = True):  # pump can be real or mock
@@ -414,58 +457,110 @@ def run_sequence(
             except Exception as e:
                 print(f"[WARN] Could not stop pump cleanly: {e}")
             continue
-        # Valve commands (single-step outside blocks)
-        if "valve_on" in step:
+        # Solenoid valve commands (Buffer selector - pin 7)
+        if "valve_on" in step or "solenoid_on" in step:
             if not valve:
                 sys.exit("Valve requested but not initialized.")
-            print("[ACTION] Valve ON")
+            print("[ACTION] Solenoid Valve ON (Buffer B)")
             try:
-                valve.on()
-            except Exception as e:
-                print(f"[WARN] Failed to set valve ON: {e}")
-            continue
-        if "valve_off" in step:
-            if not valve:
-                sys.exit("Valve requested but not initialized.")
-            print("[ACTION] Valve OFF")
-            try:
-                valve.off()
-            except Exception as e:
-                print(f"[WARN] Failed to set valve OFF: {e}")
-            continue
-        if "valve_toggle" in step:
-            if not valve:
-                sys.exit("Valve requested but not initialized.")
-            print("[ACTION] Valve TOGGLE")
-            try:
-                resp = valve.toggle()
+                resp = valve.solenoid_on()
                 if resp:
                     print(f"  [VALVE RESP] {resp}")
             except Exception as e:
-                print(f"[WARN] Failed to toggle valve: {e}")
+                print(f"[WARN] Failed to set solenoid valve ON: {e}")
             continue
-        if "valve_state" in step:
+        if "valve_off" in step or "solenoid_off" in step:
             if not valve:
                 sys.exit("Valve requested but not initialized.")
-            print("[ACTION] Valve STATE?")
+            print("[ACTION] Solenoid Valve OFF (Buffer A)")
             try:
-                resp = valve.state()
-                if resp:
-                    print(f"  [VALVE STATE] {resp}")
-            except Exception as e:
-                print(f"[WARN] Failed to read valve state: {e}")
-            continue
-        if "valve_pulse" in step:
-            if not valve:
-                sys.exit("Valve requested but not initialized.")
-            ms = int(step["valve_pulse"])
-            print(f"[ACTION] Valve PULSE {ms}ms")
-            try:
-                resp = valve.pulse(ms)
+                resp = valve.solenoid_off()
                 if resp:
                     print(f"  [VALVE RESP] {resp}")
             except Exception as e:
-                print(f"[WARN] Failed to pulse valve: {e}")
+                print(f"[WARN] Failed to set solenoid valve OFF: {e}")
+            continue
+        if "valve_toggle" in step or "solenoid_toggle" in step:
+            if not valve:
+                sys.exit("Valve requested but not initialized.")
+            print("[ACTION] Solenoid Valve TOGGLE")
+            try:
+                resp = valve.solenoid_toggle()
+                if resp:
+                    print(f"  [SOLENOID RESP] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to toggle solenoid valve: {e}")
+            continue
+        if "valve_state" in step or "solenoid_state" in step:
+            if not valve:
+                sys.exit("Valve requested but not initialized.")
+            print("[ACTION] Solenoid Valve STATE?")
+            try:
+                resp = valve.solenoid_state()
+                if resp:
+                    print(f"  [SOLENOID STATE] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to read solenoid valve state: {e}")
+            continue
+        
+        # Pinch valve commands (Flow gate - pin 9)
+        if "pinch_valve_on" in step or "pinch_on" in step:
+            if not valve:
+                sys.exit("Pinch valve requested but not initialized.")
+            print("[ACTION] Pinch Valve ON (Enable flow)")
+            try:
+                resp = valve.pinch_on()
+                if resp:
+                    print(f"  [PINCH RESP] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to set pinch valve ON: {e}")
+            continue
+        if "pinch_valve_off" in step or "pinch_off" in step:
+            if not valve:
+                sys.exit("Pinch valve requested but not initialized.")
+            print("[ACTION] Pinch Valve OFF (Block flow)")
+            try:
+                resp = valve.pinch_off()
+                if resp:
+                    print(f"  [PINCH RESP] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to set pinch valve OFF: {e}")
+            continue
+        if "pinch_valve_toggle" in step or "pinch_toggle" in step:
+            if not valve:
+                sys.exit("Pinch valve requested but not initialized.")
+            print("[ACTION] Pinch Valve TOGGLE")
+            try:
+                resp = valve.pinch_toggle()
+                if resp:
+                    print(f"  [PINCH RESP] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to toggle pinch valve: {e}")
+            continue
+        if "pinch_valve_state" in step or "pinch_state" in step:
+            if not valve:
+                sys.exit("Pinch valve requested but not initialized.")
+            print("[ACTION] Pinch Valve STATE?")
+            try:
+                resp = valve.pinch_state()
+                if resp:
+                    print(f"  [PINCH STATE] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to read pinch valve state: {e}")
+            continue
+        if "pinch_valve_pulse" in step or "pinch_pulse" in step:
+            if not valve:
+                sys.exit("Pinch valve requested but not initialized.")
+            seconds = float(step.get("pinch_valve_pulse", step.get("pinch_pulse", 0)))
+            print(f"[ACTION] Pinch Valve PULSE {seconds}s (emulated)")
+            try:
+                valve.pinch_on()
+                time.sleep(seconds)
+                resp = valve.pinch_off()
+                if resp:
+                    print(f"  [PINCH RESP] {resp}")
+            except Exception as e:
+                print(f"[WARN] Failed to pulse pinch valve: {e}")
             continue
         # Timed command block
         if ("wait" in step or "duration" in step) and "commands" in step:
@@ -511,6 +606,15 @@ def run_sequence(
             wait_s = float(step["wait"]) or 0.0
             print(f"[WAIT] {wait_s}s")
             interruptible_sleep(wait_s)
+            continue
+        
+        # New: Message box (blocks until user clicks OK)
+        if "okbutton" in step:
+            message = step["okbutton"]
+            title = step.get("okbutton_title", "OK")
+            print(f"[ACTION] Show message box: {message}")
+            MessageBox.show_ok(message, title)
+            print(f"[ACTION] User pressed OK, continuing...")
             continue
         
         # New: Loop command with repeat count
@@ -719,15 +823,11 @@ def run_sequence(
                     error_msg = microscope.get_error_details()
                     print(f"[MICROSCOPE] [FAIL] Button '{action}' not found or click failed: {error_msg}")
                     
-                    # If wait_complete is False, we're running async - just warn and continue
-                    # The user wants the pump to keep running even if microscope has issues
-                    if not wait_complete:
-                        print("[WARN] Microscope operation failed, but continuing protocol since wait_complete=false")
-                        print("       The pump will continue changing buffers during acquisition")
-                    else:
-                        # Critical failure - can't proceed without microscope
-                        print("[ABORT] Cannot continue without image acquisition - stopping protocol")
-                        raise RuntimeError(f"Microscope button click failed: {error_msg}")
+                    # Show error dialog and let user manually press the button
+                    error_dialog_msg = f"ERROR: Could not press '{action}' button.\n\nPlease press it manually and click OK to continue."
+                    print(f"[ERROR] Showing manual intervention dialog...")
+                    MessageBox.show_ok(error_dialog_msg, "Microscope Error")
+                    print(f"[MICROSCOPE] User confirmed manual button press, continuing...")
             continue
         
         # Legacy: Microscope acquire command (alias for microscope: run)
@@ -774,7 +874,11 @@ def main(argv: list[str] | None = None) -> int:
 
     pump_enabled = bool(required_hw.get("pump", False))
     valve_enabled = bool(required_hw.get("valve", False))
+    pinch_valve_enabled = bool(required_hw.get("pinch_valve", False))
     microscope_enabled = bool(required_hw.get("microscope", False))
+    
+    # valve_enabled includes both standard and pinch valve
+    valve_enabled = valve_enabled or pinch_valve_enabled
     dry_run = args.dry_run
 
     pump_profiles = config.get("pump settings", {}) if pump_enabled else {}
@@ -799,21 +903,26 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Suggested fix: {pump.get_suggested_fix()}")
                     return 1
 
+    # Dual valve controller (solenoid + pinch on same Arduino)
     valve = None
+    
     if valve_enabled:
         if dry_run:
             valve = MockValve()
         else:
-            # Try to get valve port from environment, default to COM6 (Arduino typical)
-            valve_port = os.getenv("VALVE_PORT", "COM6")
-            valve_baud = int(os.getenv("VALVE_BAUDRATE", "115200"))
-            print(f"[INFO] Attempting valve connection on {valve_port}")
-            valve = ValveController(port=valve_port, baudrate=valve_baud)
+            # Auto-detect valve port using VID/PID or description, with fallback to env/default
+            ports_info = resolve_ports_from_env()
+            valve_port = ports_info["valve_port"]
+            valve_baud = ports_info["valve_baud"]
+            detection_method = "auto-detected (VID/PID)" if ports_info["valve_detected"] else ("env override" if ports_info["valve_from_env"] else "fallback default")
+            
+            print(f"[INFO] Attempting dual valve controller connection on {valve_port} ({detection_method})")
+            valve = DualValveController(port=valve_port, baudrate=valve_baud)
             if getattr(valve, 'ser', None) is None:
-                print(f"Valve initialization failed: Serial connection not established on {valve_port}")
-                print(f"Suggested fix: Check Arduino connection or set VALVE_PORT environment variable")
+                print(f"Dual valve initialization failed: Serial connection not established on {valve_port}")
+                print(f"Suggested fix: Check Arduino connection or verify ARDUINO_VID/ARDUINO_PID in .env")
                 return 1
-            print(f"[INFO] Valve initialized successfully on {valve_port}")
+            print(f"[INFO] Dual valve controller initialized successfully on {valve_port}")
 
     microscope = None
     if microscope_enabled:
@@ -851,14 +960,20 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as e:
                 print(f"[SHUTDOWN] ✗ Pump stop failed: {e}")
         
-        # Turn off valve
+        # Turn off valves (both solenoid and pinch)
         if valve:
             try:
-                print("[SHUTDOWN] Turning off valve...")
-                valve.off()
-                print("[SHUTDOWN] ✓ Valve off")
+                print("[SHUTDOWN] Turning off solenoid valve...")
+                valve.solenoid_off()
+                print("[SHUTDOWN] ✓ Solenoid valve off")
             except Exception as e:
-                print(f"[SHUTDOWN] ✗ Valve off failed: {e}")
+                print(f"[SHUTDOWN] ✗ Solenoid valve off failed: {e}")
+            try:
+                print("[SHUTDOWN] Turning off pinch valve...")
+                valve.pinch_off()
+                print("[SHUTDOWN] ✓ Pinch valve off")
+            except Exception as e:
+                print(f"[SHUTDOWN] ✗ Pinch valve off failed: {e}")
         
         # Close microscope connection
         if microscope:

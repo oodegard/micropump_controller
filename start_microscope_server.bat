@@ -15,12 +15,35 @@ REM Default shared folder for file-based communication
 REM Using the entire repo share
 set "DEFAULT_FOLDER=\\BIPHUB\micropump_controller"
 
-REM If no argument provided, use default folder
-if "%~1"=="" (
-    set "SHARED_FOLDER=%DEFAULT_FOLDER%"
-) else (
-    set "SHARED_FOLDER=%~1"
+set "SHARED_FOLDER=%DEFAULT_FOLDER%"
+set "SHARED_FOLDER_SET=0"
+set "SCREEN_OPTION="
+
+:parse_args
+if "%~1"=="" goto args_done
+
+if /I "%~1"=="--screen" (
+    if "%~2"=="" (
+        echo ERROR: --screen requires an index value.
+        exit /b 1
+    )
+    set "SCREEN_OPTION=--screen %~2"
+    shift
+    shift
+    goto parse_args
 )
+
+if "%SHARED_FOLDER_SET%"=="0" (
+    set "SHARED_FOLDER=%~1"
+    set "SHARED_FOLDER_SET=1"
+    shift
+    goto parse_args
+)
+
+echo ERROR: Unrecognized argument %1
+exit /b 1
+
+:args_done
 
 REM Check if executable exists
 if not exist "%SERVER_EXE%" (
@@ -49,13 +72,24 @@ if not exist "%SHARED_FOLDER%" (
 echo Starting server...
 echo Executable: %SERVER_EXE%
 echo Shared folder: %SHARED_FOLDER%
+if defined SCREEN_OPTION (
+    for /f "tokens=2" %%s in ("%SCREEN_OPTION%") do (
+        echo Screen index: %%s
+    )
+) else (
+    echo Screen index: primary (default)
+)
 echo.
 echo Server will monitor %SHARED_FOLDER%\status\ for command.json files
 echo Press Ctrl+C to exit
 echo.
 
-REM Run server with shared folder as argument
-"%SERVER_EXE%" "%SHARED_FOLDER%"
+REM Run server with shared folder and optional screen argument
+if defined SCREEN_OPTION (
+    "%SERVER_EXE%" "%SHARED_FOLDER%" %SCREEN_OPTION%
+) else (
+    "%SERVER_EXE%" "%SHARED_FOLDER%"
+)
 
 echo.
 echo Server stopped.

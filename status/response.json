@@ -1,1 +1,1 @@
-{"status":"error","error":"Button image not found or match failed: Run1_start_W10.png"}
+{"status":"complete","action":"find_and_click","image":"Fusion_Acquire.png","duration_seconds":336.3}

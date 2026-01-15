@@ -1,0 +1,60 @@
+
+pump settings:
+  normal speed:
+    waveform: RECT      # Shape of the pump signal (e.g., RECT = rectangular)
+    voltage: 100        # Voltage to apply to the pump (in Volts)
+    freq: 100            # Frequency of the pump signal (in Hz)
+
+required hardware:
+  pump: true             # Set to true if a pump is connected
+  valve: true            # Set to true if a valve is connected
+  microscope: true       # Audio-based microscope trigger via 1000 Hz signal
+  pinch_valve: true
+  pipetting robot: false # TODO: add support for pipetting robot control
+# Messagebox can be called without any hardware
+
+run:  
+  # Loop: Repeat valve switching 5 times (5 cycles × 40s = 200s total
+  #- pinch_valve_on: 0
+  #- wait: 2
+  #- pinch_valve_off: 0
+
+
+  - okbutton: "Please set the microscope to image for 2 minute every 10 seconds"
+
+  # Image before adding fluorescent dye
+  - pinch_valve_on: 0
+  - valve_off: 0 
+  - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
+  - wait: 60
+  - pump_off: 0
+  - pinch_valve_off: 0
+
+  - microscope: run_now_crest # Take image
+    confidence: 0.95
+
+
+# Image with fluorescent dye
+  - okbutton: "Please set the microscope to image for 5 minutes every 10 seconds"
+  - pinch_valve_on: 0
+  - valve_on: 0 # turn on valve to tube B      
+  - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
+  - wait: 30
+  - pump_off: 0
+  - pinch_valve_off: 0
+
+  - microscope: run_now_crest # Take image
+    confidence: 0.95
+  
+  
+  # Image after washing out fluorescent dye
+  - okbutton: "Please set the microscope to image for 6 minutes every 10 seconds"
+  - pinch_valve_on: 0
+  - valve_off: 0 
+  - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
+  - wait: 30
+  - pump_off: 0
+  - pinch_valve_off: 0
+
+  - microscope: run_now_crest # Take image
+    confidence: 0.95

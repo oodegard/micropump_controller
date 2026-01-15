@@ -3,13 +3,7 @@ required hardware:
   valve: false
   microscope: true
 
-run:
-  - microscope: Fusion_Acquire
-    confidence: 0.95
-    wait_complete: false  # Click button but don't wait for acquisition to finish
-  
-  - wait: 2  # Do other work while microscope is acquiring
-  
-  - microscope: Fusion_Acquire
-    confidence: 0.95
+run:  
+  - microscope: run_now_crest
+    confidence: 0.85
     wait_complete: true  # This time wait for completion

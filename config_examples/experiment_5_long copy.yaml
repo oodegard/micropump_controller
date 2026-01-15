@@ -2,8 +2,8 @@
 pump settings:
   normal speed:
     waveform: RECT      # Shape of the pump signal (e.g., RECT = rectangular)
-    voltage: 200        # Voltage to apply to the pump (in Volts)
-    freq: 200            # Frequency of the pump signal (in Hz)
+    voltage: 120        # Voltage to apply to the pump (in Volts)
+    freq: 120            # Frequency of the pump signal (in Hz)
 
 required hardware:
   pump: true             # Set to true if a pump is connected
@@ -28,7 +28,7 @@ run:
 
   - valve_on: 0 # turn on valve to tube B      
   - pump_on: normal speed  # Turn on the pump using the 'normal speed' settings above
-  - wait: 10
+  - wait: 60
   - pump_off: 0
 
   - loop:
@@ -44,7 +44,7 @@ run:
   - pump_off: 0
 
   - loop:
-      repeat: 120          # Number of times to repeat the sequence
+      repeat: 600          # Number of times to repeat the sequence
       steps:
         - microscope: Fusion_Acquire # Take image
           confidence: 0.95

@@ -41,9 +41,11 @@ namespace MicroscopeServer
         private string screenshotFile;
         private string buttonsFolder;
         private bool isRunning = false;
+        private readonly Screen captureScreen;
+        private readonly int screenIndex;
         private const double DEFAULT_MATCH_THRESHOLD = 0.98; // High confidence threshold (accounts for minor rendering differences)
 
-        public MicroscopeServer(string sharedPath)
+        public MicroscopeServer(string sharedPath, int desiredScreenIndex = -1)
         {
             // Validate and normalize path
             if (string.IsNullOrEmpty(sharedPath))
@@ -85,6 +87,34 @@ namespace MicroscopeServer
             {
                 throw new ArgumentException(string.Format("Cannot create shared folder: {0}", ex.Message));
             }
+
+            Screen[] screens = Screen.AllScreens;
+            if (screens == null || screens.Length == 0)
+            {
+                throw new InvalidOperationException("No displays detected on host machine");
+            }
+
+            if (desiredScreenIndex >= 0 && desiredScreenIndex < screens.Length)
+            {
+                captureScreen = screens[desiredScreenIndex];
+                screenIndex = desiredScreenIndex;
+            }
+            else
+            {
+                captureScreen = Screen.PrimaryScreen;
+                int idx = Array.IndexOf(screens, captureScreen);
+                screenIndex = idx >= 0 ? idx : 0;
+            }
+
+            Rectangle bounds = captureScreen.Bounds;
+            Console.WriteLine(string.Format(
+                "Capturing from screen index {0} ({1}) - {2}x{3} at ({4},{5})",
+                screenIndex,
+                captureScreen.DeviceName,
+                bounds.Width,
+                bounds.Height,
+                bounds.X,
+                bounds.Y));
         }
 
         public void Start()
@@ -346,7 +376,7 @@ namespace MicroscopeServer
         private void TakeScreenshot()
         {
             // Take screenshot of primary screen
-            Rectangle bounds = Screen.PrimaryScreen.Bounds;
+            Rectangle bounds = captureScreen.Bounds;
             using (Bitmap screenshot = new Bitmap(bounds.Width, bounds.Height))
             {
                 using (Graphics g = Graphics.FromImage(screenshot))
@@ -435,7 +465,7 @@ namespace MicroscopeServer
                 Image<Bgr, byte> template = new Image<Bgr, byte>(buttonPath);
                 
                 // Take a screenshot of the screen
-                Rectangle bounds = Screen.PrimaryScreen.Bounds;
+                Rectangle bounds = captureScreen.Bounds;
                 using (Bitmap screenshot = new Bitmap(bounds.Width, bounds.Height))
                 {
                     using (Graphics g = Graphics.FromImage(screenshot))
@@ -468,9 +498,11 @@ namespace MicroscopeServer
                         // Calculate the center of the button
                         int centerX = maxLoc.X + template.Width / 2;
                         int centerY = maxLoc.Y + template.Height / 2;
+                        int screenX = bounds.X + centerX;
+                        int screenY = bounds.Y + centerY;
                         
-                        Console.WriteLine(string.Format("Button found at ({0}, {1}) with confidence {2:F2}", centerX, centerY, maxVal));
-                        return new Point(centerX, centerY);
+                        Console.WriteLine(string.Format("Button found at ({0}, {1}) with confidence {2:F2}", screenX, screenY, maxVal));
+                        return new Point(screenX, screenY);
                     }
                     else
                     {
@@ -564,30 +596,62 @@ namespace MicroscopeServer
             Console.WriteLine("Compatible with Python microscope client");
             Console.WriteLine();
 
-            // Default to current directory if no argument provided
+            // Default options
             string sharedPath = Environment.CurrentDirectory;
-            
-            if (args.Length > 0 && !string.IsNullOrEmpty(args[0]))
-            {
-                sharedPath = args[0];
-            }
-
-            Console.WriteLine(string.Format("Using shared folder: {0}", sharedPath));
-            Console.WriteLine("Press Ctrl+C to exit");
-            Console.WriteLine();
+            int screenIndex = -1; // -1 = auto (primary)
 
             try
             {
-                var server = new MicroscopeServer(sharedPath);
+                for (int i = 0; i < args.Length; i++)
+                {
+                    string arg = args[i];
+                    if (string.IsNullOrWhiteSpace(arg))
+                    {
+                        continue;
+                    }
+
+                    if (arg.Equals("--screen", StringComparison.OrdinalIgnoreCase) || arg.Equals("-s", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (i + 1 >= args.Length)
+                        {
+                            throw new ArgumentException("--screen requires a non-negative index");
+                        }
+
+                        if (!int.TryParse(args[i + 1], out screenIndex) || screenIndex < 0)
+                        {
+                            throw new ArgumentException("--screen value must be a non-negative integer");
+                        }
+
+                        i++; // Skip value we just consumed
+                        continue;
+                    }
+
+                    // First non-option argument is the shared folder path
+                    sharedPath = arg;
+                }
+
+                Console.WriteLine(string.Format("Using shared folder: {0}", sharedPath));
+                if (screenIndex >= 0)
+                {
+                    Console.WriteLine(string.Format("Requested screen index: {0}", screenIndex));
+                }
+                else
+                {
+                    Console.WriteLine("Using primary screen (default)");
+                }
+                Console.WriteLine("Press Ctrl+C to exit");
+                Console.WriteLine();
+
+                var server = new MicroscopeServer(sharedPath, screenIndex);
                 server.Start();
             }
             catch (ArgumentException ex)
             {
                 Console.WriteLine(string.Format("ERROR: {0}", ex.Message));
                 Console.WriteLine();
-                Console.WriteLine("Usage: MicroscopeServer.exe [shared_folder_path]");
+                Console.WriteLine("Usage: MicroscopeServer.exe [shared_folder_path] [--screen <index>]");
                 Console.WriteLine("Example: MicroscopeServer.exe C:\\SharedFolder");
-                Console.WriteLine("Example: MicroscopeServer.exe \\\\SERVER\\SharedFolder");
+                Console.WriteLine("Example: MicroscopeServer.exe \\\\SERVER\\SharedFolder --screen 1");
                 Console.WriteLine();
                 Console.WriteLine("Press any key to exit...");
                 Console.ReadKey();
